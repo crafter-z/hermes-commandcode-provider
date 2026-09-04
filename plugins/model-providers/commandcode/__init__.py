@@ -213,6 +213,7 @@ class CommandCodeAnthropicProfile(CommandCodeProfile):
         base_url: str | None = None,
         timeout: float = 8.0,
     ) -> list[str] | None:
+        ensure_pricing()
         all_models = _fetch_commandcode_models(timeout=timeout, base_url=base_url)
         if all_models is None:
             return None
