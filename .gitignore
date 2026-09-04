@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node (sync script uses npm only to fetch the tarball, not for this repo)
+node_modules/
+
+# Editor
+.vscode/
+.idea/

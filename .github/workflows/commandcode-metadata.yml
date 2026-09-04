@@ -1,0 +1,91 @@
+name: Command Code metadata drift
+
+on:
+  schedule:
+    # Daily 03:00 UTC — the Command Code CLI updates frequently.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "check (report) or sync (regenerate catalog)"
+        required: false
+        default: "check"
+      package:
+        description: "command-code npm package spec"
+        required: false
+        default: "command-code@latest"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Report-only: run the drift check and, if drift exists, open a PR with the
+  # regenerated catalog (--write) so the maintainer just reviews + merges.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Detect drift
+        id: drift
+        run: |
+          set +e
+          python "${{ github.workspace }}/scripts/sync_catalog.py" \
+            ${{ github.event.inputs.package || 'command-code@latest' }} \
+            > cc-drift-report.md 2>&1
+          exit_code=$?
+          set -e
+          echo "DRIFT_EXIT=$exit_code" >> "$GITHUB_OUTPUT"
+          cat cc-drift-report.md
+
+      - name: Open drift PR (draft, regenerates catalog)
+        if: steps.drift.outputs.DRIFT_EXIT == '1'
+        run: python scripts/sync_catalog.py ${{ github.event.inputs.package || 'command-code@latest' }} --write
+
+      - name: Create pull request
+        if: steps.drift.outputs.DRIFT_EXIT == '1'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "sync(commandcode): refresh model metadata snapshot"
+          branch: commandcode-metadata-sync
+          base: main
+          title: "Update Command Code model metadata snapshot"
+          body-path: cc-drift-report.md
+          author: "commandcode-sync <commandcode-sync@users.noreply.github.com>"
+          committer: "commandcode-sync <commandcode-sync@users.noreply.github.com>"
+          add-paths: plugins/model-providers/commandcode/catalog.py
+          draft: true
+
+  # Manual `sync` action: regenerate catalog and push directly.
+  sync:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'sync'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Regenerate and commit
+        run: |
+          python scripts/sync_catalog.py ${{ github.event.inputs.package || 'command-code@latest' }} --write
+          git config user.name "commandcode-sync"
+          git config user.email "commandcode-sync@users.noreply.github.com"
+          git add plugins/model-providers/commandcode/catalog.py
+          if git diff --cached --quiet; then
+            echo "No changes (metadata already current)."
+          else
+            git commit -m "sync(commandcode): refresh model metadata snapshot"
+            git push origin HEAD:commandcode-metadata-sync
+          fi
