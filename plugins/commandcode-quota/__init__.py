@@ -58,13 +58,53 @@ def _handle_quota(raw_args: str) -> str | None:
     return format_quota(quota)
 
 
+def _ensure_commandcode_pricing() -> None:
+    """Idempotently inject Command Code pricing at session start.
+
+    The provider profile's ``fetch_models`` calls ``ensure_pricing()``, but a
+    generic custom provider (e.g. ``custom:commandcode-goat``) never uses that
+    profile path, so the import-time install may have been deferred by a
+    circular-import guard. Firing on ``on_session_start`` guarantees the keys
+    are present before any session turn computes cost — independent of whether
+    the user opened ``/model``.
+    """
+    import sys
+    import importlib.util
+    from pathlib import Path
+
+    pricing = sys.modules.get("_hermes_user_provider_commandcode.pricing")
+    if pricing is None:
+        # Locate the sibling model-provider override's pricing module.
+        home = Path(__file__).resolve().parent.parent
+        candidate = home / "plugins" / "model-providers" / "commandcode" / "pricing.py"
+        if candidate.is_file():
+            spec = importlib.util.spec_from_file_location(
+                "_cc_pricing_lazy", str(candidate)
+            )
+            pricing = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(pricing)
+    ensure = getattr(pricing, "ensure_pricing", None)
+    if callable(ensure):
+        try:
+            ensure()
+        except Exception:
+            # Never let a pricing side-effect break session start.
+            pass
+
+
 def register(ctx) -> None:
-    """Register the slash command. Called once by the Hermes plugin loader."""
+    """Register the slash command + session-start pricing hook.
+
+    Called once by the Hermes plugin loader. The on_session_start hook injects
+    Command Code pricing before any cost computation, covering custom-provider
+    sessions that never exercise the provider profile's hot methods.
+    """
     ctx.register_command(
         "commandcode-quota",
         handler=_handle_quota,
         description="Show Command Code account usage and quota.",
     )
+    ctx.register_hook("on_session_start", lambda **_: _ensure_commandcode_pricing())
 
 
 __all__ = ["register", "_handle_quota", "_resolve_api_key"]

@@ -23,10 +23,14 @@ model catalog, per-model metadata, pricing display, and a daily metadata drift c
   per-model max-token caps, wired through `ProviderProfile` hooks so `/model`
   shows correct reasoning/vision/cost metadata.
 - **Pricing injection** — Command Code's Provider API catalog has no prices, so a
-  static table is injected into `agent.usage_pricing._OFFICIAL_DOCS_PRICING` at
-  import time (no editing of bundled core files; survives `hermes update`).
-  Keys cover the canonical profile names **and** common custom-provider aliases
-  (e.g. `custom:commandcode-goat`) so the live-config provider string resolves.
+  static table is injected into `agent.usage_pricing._OFFICIAL_DOCS_PRICING`
+  (no editing of bundled core files; survives `hermes update`). Keys cover the
+  canonical profile names **and** common custom-provider aliases (e.g.
+  `custom:commandcode-goat`) so the live-config provider string resolves.
+  Injection is guaranteed even for custom-provider sessions that never open
+  `/model`: the quota plugin registers an `on_session_start` hook that re-runs
+  a deferred install (the provider profile's `fetch_models` does the same for
+  profile-based sessions).
 - **`/commandcode-quota`** — a standalone plugin slash command showing account
   usage/quota from the same alpha endpoints the Command Code CLI `/usage` uses
   (whoami, billing/credits, billing/subscriptions, usage/summary).
