@@ -61,12 +61,11 @@ def _handle_quota(raw_args: str) -> str | None:
 def _ensure_commandcode_pricing() -> None:
     """Idempotently inject Command Code pricing at session start.
 
-    The provider profile's ``fetch_models`` calls ``ensure_pricing()``, but a
-    generic custom provider (e.g. ``custom:commandcode-goat``) never uses that
-    profile path, so the import-time install may have been deferred by a
-    circular-import guard. Firing on ``on_session_start`` guarantees the keys
-    are present before any session turn computes cost — independent of whether
-    the user opened ``/model``.
+    The provider profile's ``fetch_models``/``supported_reasoning_efforts`` call
+    ``ensure_pricing()``, but those fire only when that profile path is used.
+    An ``on_session_start`` hook guarantees the keys are present before any
+    session turn computes cost, regardless of whether the user opened ``/model``
+    or how the provider was resolved.
     """
     import sys
     import importlib.util

@@ -182,12 +182,11 @@ def install_pricing() -> bool:
     importable (circular-import guard during ``providers`` discovery). Callers
     may retry later — idempotent, so re-running replaces the same keys.
 
-    Keys are added for the canonical profile names (``commandcode``,
-    ``commandcode-anthropic``) AND for the custom-provider strings users may
-    configure (e.g. ``custom:commandcode-goat``, ``commandcode-goat``), so
-    ``resolve_billing_route`` matches whichever provider string the runtime
-    carries. All resolvable because ``resolve_billing_route`` strips the
-    vendor prefix and ``_lookup_official_docs_pricing`` lowercases the model.
+    Keys are ``(provider, model)`` for the plugin's own provider profiles:
+    ``commandcode`` and ``commandcode-anthropic``. ``resolve_billing_route``
+    strips the vendor prefix and ``_lookup_official_docs_pricing`` lowercases
+    the model, so keys are the bare, lowercased model ids exactly as written in
+    ``FLAT_PRICING``/``SINGLE_TIERS``.
     """
     try:
         from agent.usage_pricing import _OFFICIAL_DOCS_PRICING
@@ -198,25 +197,13 @@ def install_pricing() -> bool:
         # a later call.
         return False
 
-    # Provider strings the pricing must resolve for. Canonical profiles first,
-    # then common custom-provider aliases a user might have in config.yaml.
-    provider_aliases: dict[str, tuple[str, ...]] = {
-        "commandcode": ("commandcode", "commandcode-goat", "custom:commandcode-goat"),
-        "commandcode-anthropic": ("commandcode-anthropic",),
-    }
-
-    def _provider_names(canonical: str) -> tuple[str, ...]:
-        return provider_aliases.get(canonical, (canonical,))
-
     for (provider, model), rates in FLAT_PRICING.items():
-        for provider_name in _provider_names(provider):
-            _OFFICIAL_DOCS_PRICING[(provider_name, model)] = _make_entry(rates)
+        _OFFICIAL_DOCS_PRICING[(provider, model)] = _make_entry(rates)
     for (provider, model), tier in SINGLE_TIERS.items():
         # Use the model's real base rates (they are also in FLAT_PRICING), so
         # below-threshold cost is correct rather than zero.
         base = FLAT_PRICING.get((provider, model), (0.0, 0.0, 0.0, 0.0))
-        for provider_name in _provider_names(provider):
-            _OFFICIAL_DOCS_PRICING[(provider_name, model)] = _make_entry(base, tier=tier)
+        _OFFICIAL_DOCS_PRICING[(provider, model)] = _make_entry(base, tier=tier)
     return True
 
 
