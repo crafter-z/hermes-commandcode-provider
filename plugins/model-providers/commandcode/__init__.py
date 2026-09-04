@@ -35,7 +35,7 @@ from .catalog import (
     max_output_tokens_for_model,
     supports_image_input,
 )
-from .pricing import install_pricing
+from .pricing import ensure_pricing, install_pricing
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,12 @@ class CommandCodeProfile(ProviderProfile):
         base_url: str | None = None,
         timeout: float = 8.0,
     ) -> list[str] | None:
-        """Fetch from the public CommandCode /models endpoint (live, no hardcode)."""
+        """Fetch from the public CommandCode /models endpoint (live, no hardcode).
+
+        Also re-injects pricing if the import-time install was deferred by the
+        circular-import guard — this runs (via /model) before any cost badge.
+        """
+        ensure_pricing()
         return _fetch_commandcode_models(timeout=timeout, base_url=base_url)
 
     def default_vision_model(self) -> str | None:
@@ -134,6 +139,7 @@ class CommandCodeProfile(ProviderProfile):
     def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...] | None:
         if not model:
             return None
+        ensure_pricing()
         efforts = efforts_for_model(model)
         if not efforts:
             # Reasoning-capable but no declared levels → no effort knob.

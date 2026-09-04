@@ -212,10 +212,11 @@ def install_pricing() -> bool:
         for provider_name in _provider_names(provider):
             _OFFICIAL_DOCS_PRICING[(provider_name, model)] = _make_entry(rates)
     for (provider, model), tier in SINGLE_TIERS.items():
+        # Use the model's real base rates (they are also in FLAT_PRICING), so
+        # below-threshold cost is correct rather than zero.
+        base = FLAT_PRICING.get((provider, model), (0.0, 0.0, 0.0, 0.0))
         for provider_name in _provider_names(provider):
-            _OFFICIAL_DOCS_PRICING[(provider_name, model)] = _make_entry(
-                (0.0, 0.0, 0.0, 0.0), tier=tier
-            )
+            _OFFICIAL_DOCS_PRICING[(provider_name, model)] = _make_entry(base, tier=tier)
     return True
 
 
@@ -227,33 +228,19 @@ try:
 except Exception:  # noqa: BLE001 — the provider must load regardless.
     _installed = False
 
-if not _installed:
-    # During providers/ discovery agent.usage_pricing may be partially
-    # initialized (its own import of agent.model_metadata). Re-inject the
-    # moment that module finishes loading via a meta-path finder; idempotent,
-    # so a later import just replaces the same keys. Minimal and harmless to a
-    # normal session (find_spec returns None → import machinery proceeds).
-    import importlib.abc
-    import sys as _sys
 
+def ensure_pricing() -> bool:
+    """Idempotently (re)inject Command Code pricing.
 
-    def _ensure_pricing() -> bool:
-        global _installed
-        if _installed:
-            return True
-        try:
-            _installed = install_pricing()
-        except Exception:  # noqa: BLE001
-            _installed = False
-        return _installed
-
-
-    class _PricingInjector(importlib.abc.MetaPathFinder):
-        def find_spec(self, fullname, path=None, target=None):
-            if fullname == "agent.usage_pricing":
-                _ensure_pricing()
-            return None
-
-
-    if not any(isinstance(f, _PricingInjector) for f in _sys.meta_path):
-        _sys.meta_path.insert(0, _PricingInjector())
+    Safe to call from a profile hot method (fetch_models /
+    supported_reasoning_efforts) if the import-time injection was deferred by
+    the circular-import guard. Returns True when pricing is installed.
+    """
+    global _installed
+    if _installed:
+        return True
+    try:
+        _installed = install_pricing()
+    except Exception:  # noqa: BLE001 — never crash the provider path.
+        _installed = False
+    return _installed
