@@ -20,6 +20,7 @@ import os
 
 from .quota import QuotaError, fetch_quota
 from .quota_format import format_quota
+from .status import _handle_refresh, _handle_status
 
 _HELP_TEXT = "Usage: /commandcode-quota — show Command Code account usage and quota."
 
@@ -103,7 +104,23 @@ def register(ctx) -> None:
         handler=_handle_quota,
         description="Show Command Code account usage and quota.",
     )
+    ctx.register_command(
+        "commandcode-refresh",
+        handler=_handle_refresh,
+        description="Refresh the Command Code model catalog",
+    )
+    ctx.register_command(
+        "commandcode-status",
+        handler=_handle_status,
+        description="Show redacted Command Code provider diagnostics",
+    )
     ctx.register_hook("on_session_start", lambda **_: _ensure_commandcode_pricing())
 
 
-__all__ = ["register", "_handle_quota", "_resolve_api_key"]
+__all__ = [
+    "register",
+    "_handle_quota",
+    "_handle_refresh",
+    "_handle_status",
+    "_resolve_api_key",
+]

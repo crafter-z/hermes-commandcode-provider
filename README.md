@@ -41,11 +41,13 @@ model catalog, per-model metadata, pricing display, and a daily metadata drift c
 ```
 plugins/model-providers/commandcode/      # $HERMES_HOME plugin override
   __init__.py        # both ProviderProfile profiles + metadata hooks + pricing inject
+  cache.py           # on-disk model catalog cache + offline fallback (enrich/cache_path/…)
   catalog.py         # per-model metadata snapshot (generated; NOT model ids)
   pricing.py         # static pricing table + install_pricing()
   plugin.yaml        # manifest (kind: model-provider)
 plugins/commandcode-quota/                # standalone plugin
-  __init__.py        # register(ctx) → /commandcode-quota command
+  __init__.py        # register(ctx) → /commandcode-quota, -refresh, -status
+  status.py          # /commandcode-refresh + /commandcode-status handlers
   quota.py           # alpha endpoint fetch + schema parsing
   quota_format.py    # text renderer
   plugin.yaml        # manifest (kind: standalone)
@@ -93,6 +95,31 @@ Then in a session: `/commandcode-quota`.
 > The bundled `model-provider` plugins are loaded by `providers/` discovery and
 > need no enable step; the quota **standalone** plugin does.
 
+### 3. Catalog cache & refresh/status commands
+
+Every live model fetch (`provider_model_ids`, `/model`) now persists the
+enriched catalog to `<HERMES_HOME>/cache/commandcode-models.json` (written
+atomically by `plugins/model-providers/commandcode/cache.py`), so the model
+list and its live-observed `context_length` windows survive offline sessions —
+`get_model_metadata` and the commands below fall back to that file when
+`/models` is unreachable. The quota plugin registers two commands to manage and
+inspect the cache:
+
+- `/commandcode-refresh` — re-fetch the catalog (live first, disk-cache
+  fallback). Live result: `Command Code model catalog refreshed (N models from
+  live).` Unreachable but cached: `Command Code model catalog unchanged (N
+  models remain available). <warning>`. Overlapping refreshes are coalesced
+  (returns "refresh already in progress").
+- `/commandcode-status` — redacted provider diagnostics: last refresh source
+  (`live`/`cache`/`empty`), model count, last success/attempt ISO timestamps
+  ("never" when unset), cache path, endpoint, and any warning. URLs are trimmed
+  to `protocol://host/path` and key/token/secret values are scrubbed.
+
+Cache location defaults to `<HERMES_HOME>/cache/commandcode-models.json`
+(`HERMES_HOME` unset: `~/AppData/Local/hermes`); override it with
+`COMMANDCODE_MODELS_CACHE`. The refresh fetch timeout (default 10 s) is
+configurable via `COMMANDCODE_MODELS_TIMEOUT_MS`.
+
 ## Model metadata sync & drift
 
 The `catalog.py` snapshot is generated from the `command-code` npm CLI package.
@@ -121,6 +148,10 @@ and pushes directly.
 - `COMMANDCODE_BASE_URL` / `COMMANDCODE_ANTHROPIC_BASE_URL` — per-profile base-URL
   overrides (proxy/custom deployment).
 - `COMMANDCODE_MODELS_URL` — models-endpoint override (tests/mocks).
+- `COMMANDCODE_MODELS_CACHE` — catalog cache file path override (default
+  `<HERMES_HOME>/cache/commandcode-models.json`).
+- `COMMANDCODE_MODELS_TIMEOUT_MS` — `/commandcode-refresh` live-fetch timeout in
+  milliseconds (default `10000`).
 
 ## Notes & divergence
 

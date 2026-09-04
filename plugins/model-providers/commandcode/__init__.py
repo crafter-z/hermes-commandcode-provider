@@ -30,6 +30,7 @@ from typing import Any
 from providers import register_provider
 from providers.base import ProviderProfile, _profile_user_agent
 
+from . import cache
 from .catalog import (
     efforts_for_model,
     max_output_tokens_for_model,
@@ -48,17 +49,17 @@ _COMMANDCODE_ENV = ("COMMANDCODE_API_KEY", "COMMANDCODE_BASE_URL")
 _COMMANDCODE_ANTHROPIC_ENV = ("COMMANDCODE_API_KEY", "COMMANDCODE_ANTHROPIC_BASE_URL")
 
 
-def _fetch_commandcode_models(
+def _fetch_commandcode_model_records(
     timeout: float = 10.0,
     base_url: str | None = None,
-) -> list[str] | None:
-    """Fetch the live model list from the CommandCode /models endpoint.
+) -> list[dict] | None:
+    """Fetch the live /models payload as raw ``{id, name, context_length}`` records.
 
-    Returns a flat list of model IDs or None on failure. No auth required —
-    the public models endpoint is open. ``base_url`` overrides the endpoint
-    only when the caller passed a URL that differs from the default (a
-    user-configured proxy/custom deployment); equality means "not customised".
-    **The model ID list is always from this live fetch — never hardcoded.**
+    Returns the record list or None on failure. No auth required — the public
+    models endpoint is open. ``base_url`` overrides the endpoint only when the
+    caller passed a URL that differs from the default (a user-configured
+    proxy/custom deployment); equality means "not customised".
+    **The model catalog is always from this live fetch — never hardcoded.**
     """
     caller_base = (base_url or "").strip()
     if caller_base and caller_base.rstrip("/") != _COMMANDCODE_BASE.rstrip("/"):
@@ -71,10 +72,36 @@ def _fetch_commandcode_models(
         req.add_header("User-Agent", _profile_user_agent())
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
-        return [m["id"] for m in data.get("data", []) if isinstance(m, dict) and "id" in m]
+        return [
+            m for m in data.get("data", []) if isinstance(m, dict) and "id" in m
+        ]
     except Exception as exc:
         logger.debug("fetch_models(commandcode): %s", exc)
         return None
+
+
+def _fetch_commandcode_models(
+    timeout: float = 10.0,
+    base_url: str | None = None,
+) -> list[str] | None:
+    """Fetch the live model ID list and refresh the on-disk catalog cache.
+
+    Contract unchanged: returns the live ID list or None on failure (Hermes
+    then falls back to the profile's ``fallback_models``). On success the raw
+    records are enriched with catalog metadata and persisted via
+    ``cache.enrich_models``/``cache._write`` so offline sessions and
+    ``get_model_metadata`` see the last live-observed catalog.
+    """
+    records = _fetch_commandcode_model_records(timeout=timeout, base_url=base_url)
+    if records is None:
+        return None
+    enriched = cache.enrich_models(records)
+    try:
+        cache._write(cache.cache_path(), enriched)
+    except OSError as exc:
+        # A cache-write failure must never fail a live fetch.
+        logger.debug("cache write failed: %s", exc)
+    return [m["id"] for m in enriched]
 
 
 # ── Reasoning-effort mapping ──────────────────────────────────────────────────
@@ -145,6 +172,30 @@ class CommandCodeProfile(ProviderProfile):
             # Reasoning-capable but no declared levels → no effort knob.
             return ()
         return tuple(efforts)
+
+    def get_model_metadata(self, model: str | None) -> dict:
+        """Merged per-model metadata record (catalog snapshot + cached window).
+
+        Combines the catalog metadata (api mode, reasoning, vision input,
+        output cap, selectable efforts) with the live-observed context window
+        from the on-disk cache written by ``fetch_models``. Empty dict for an
+        empty id; a model never seen live falls back to a catalog-only record
+        (no ``contextWindow``).
+        """
+        if not model:
+            return {}
+        try:
+            cached = cache.load_cache(cache.cache_path())
+        except Exception:
+            cached = None
+        if cached:
+            for record in cached:
+                if isinstance(record, dict) and record.get("id") == model:
+                    return dict(record)
+        try:
+            return cache.enrich_models([{"id": model, "name": model}])[0]
+        except Exception:
+            return {"id": model}
 
     def build_api_kwargs_extras(
         self,

@@ -23,7 +23,7 @@ tmp = Path(tempfile.mkdtemp(prefix="ccquota_"))
 pkg_root = tmp / "hermes_plugins"
 pkg_dir = pkg_root / "commandcode_quota"
 pkg_dir.mkdir(parents=True)
-for name in ("__init__.py", "quota.py", "quota_format.py"):
+for name in ("__init__.py", "status.py", "quota.py", "quota_format.py"):
     shutil.copy(SRC / name, pkg_dir / name)
 sys.path.insert(0, str(tmp))
 
