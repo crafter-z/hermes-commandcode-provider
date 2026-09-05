@@ -74,8 +74,10 @@ def _ensure_commandcode_pricing() -> None:
 
     pricing = sys.modules.get("_hermes_user_provider_commandcode.pricing")
     if pricing is None:
-        # Locate the sibling model-provider override's pricing module.
-        home = Path(__file__).resolve().parent.parent
+        # Locate the sibling model-provider override's pricing module. This
+        # file lives at <HERMES_HOME>/plugins/commandcode-quota/__init__.py, so
+        # three levels up reaches HERMES_HOME, then + plugins/model-providers/...
+        home = Path(__file__).resolve().parent.parent.parent
         candidate = home / "plugins" / "model-providers" / "commandcode" / "pricing.py"
         if candidate.is_file():
             spec = importlib.util.spec_from_file_location(

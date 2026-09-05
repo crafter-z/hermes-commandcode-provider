@@ -78,7 +78,12 @@ def _cache():
         return _cache_module
     module = sys.modules.get(f"{_RUNTIME_PACKAGE}.cache")
     if module is None:
-        here = Path(__file__).resolve().parent.parent
+        # status.py lives at <HERMES_HOME>/plugins/commandcode-quota/, and the
+        # sibling provider package at <HERMES_HOME>/plugins/model-providers/commandcode/.
+        # Three levels up (commandcode-quota/ -> plugins/ -> HERMES_HOME) then
+        # + plugins/model-providers/... — NOT two levels, which would double
+        # `plugins/` and never resolve.
+        here = Path(__file__).resolve().parent.parent.parent
         candidate = here / "plugins" / "model-providers" / "commandcode" / "cache.py"
         if candidate.is_file():
             spec = importlib.util.spec_from_file_location("_cc_cache_lazy", str(candidate))
