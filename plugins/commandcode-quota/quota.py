@@ -274,6 +274,13 @@ def fetch_quota(
     being treated as zero.
     """
     headers = {"accept": "application/json"}
+    # Command Code sits behind Cloudflare, which returns Error 1010 (Access
+    # denied) for requests without a browser User-Agent. urllib's default UA
+    # (Python-urllib/x.y) gets blocked, so send a real browser UA.
+    headers["User-Agent"] = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    )
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     if extra_headers:
