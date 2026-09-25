@@ -14,15 +14,38 @@ on:
         description: "command-code npm package spec"
         required: false
         default: "command-code@latest"
+  push:
+    branches: [master]
+  pull_request:
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  # Report-only: run the drift check and, if drift exists, open a PR with the
-  # regenerated catalog (--write) so the maintainer just reviews + merges.
+  # Contract tests. No network: the suites stub the Hermes core and a local
+  # fake /models server, so they run on every push and pull request.
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Run contract tests
+        run: |
+          python tests/test_quota_plugin.py
+          python tests/test_cache_refresh.py
+          python tests/test_catalog_metadata.py
+          python tests/test_provider_profile.py
+          python tests/test_pricing.py
+
+  # Drift check: compare the checked-in snapshot against the published CLI
+  # package and, on drift, open a PR with the regenerated catalog so the
+  # maintainer only reviews + merges. Schedule/dispatch only — a push must not
+  # kick off a catalog PR.
   check:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       # contents: write — the action pushes the regenerated catalog branch.
@@ -30,33 +53,45 @@ jobs:
       # pull-requests: write — the action opens/updates the draft drift PR.
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
+      # The dispatch input reaches a shell, so it is passed through the
+      # environment and quoted — never interpolated into the command line.
       - name: Detect drift
         id: drift
+        env:
+          CC_PACKAGE: ${{ github.event.inputs.package || 'command-code@latest' }}
         run: |
           set +e
-          python "${{ github.workspace }}/scripts/sync_catalog.py" \
-            ${{ github.event.inputs.package || 'command-code@latest' }} \
+          python "${{ github.workspace }}/scripts/sync_catalog.py" "$CC_PACKAGE" \
             > cc-drift-report.md 2>&1
           exit_code=$?
           set -e
           echo "DRIFT_EXIT=$exit_code" >> "$GITHUB_OUTPUT"
           cat cc-drift-report.md
+          case "$exit_code" in
+            0|1) exit 0 ;;
+            *)
+              echo "::error::model metadata check could not run (exit $exit_code)"
+              exit "$exit_code"
+              ;;
+          esac
 
       - name: Open drift PR (draft, regenerates catalog)
         if: steps.drift.outputs.DRIFT_EXIT == '1'
-        run: python scripts/sync_catalog.py ${{ github.event.inputs.package || 'command-code@latest' }} --write
+        env:
+          CC_PACKAGE: ${{ github.event.inputs.package || 'command-code@latest' }}
+        run: python scripts/sync_catalog.py "$CC_PACKAGE" --write
 
       - name: Create pull request
         if: steps.drift.outputs.DRIFT_EXIT == '1'
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "sync(commandcode): refresh model metadata snapshot"
           branch: commandcode-metadata-sync
@@ -71,23 +106,27 @@ jobs:
             README.md
           draft: true
 
-  # Manual `sync` action: regenerate catalog and push directly.
+  # Manual `sync` action: regenerate catalog and push straight to the default
+  # branch, no review step.
   sync:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'sync'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Regenerate and commit
+        env:
+          CC_PACKAGE: ${{ github.event.inputs.package || 'command-code@latest' }}
+          TARGET_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          python scripts/sync_catalog.py ${{ github.event.inputs.package || 'command-code@latest' }} --write
+          python scripts/sync_catalog.py "$CC_PACKAGE" --write
           git config user.name "commandcode-sync"
           git config user.email "commandcode-sync@users.noreply.github.com"
           git add plugins/model-providers/commandcode/catalog.py README.md
@@ -95,5 +134,5 @@ jobs:
             echo "No changes (metadata already current)."
           else
             git commit -m "sync(commandcode): refresh model metadata snapshot"
-            git push origin HEAD:commandcode-metadata-sync
+            git push origin "HEAD:$TARGET_BRANCH"
           fi
