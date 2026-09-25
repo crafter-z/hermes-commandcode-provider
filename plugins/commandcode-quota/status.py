@@ -39,13 +39,17 @@ _last_warning: str | None = None
 def redact_url(url: str) -> str:
     """Trim a URL to ``protocol://host/path`` — drop query, fragment, userinfo.
 
-    Also collapses any empty path so output stays ``https://host``.
+    Also collapses any empty path so output stays ``https://host``. A malformed
+    URL (non-numeric port, unbalanced IPv6 brackets) must never make a
+    diagnostic formatter raise, so it degrades to a placeholder.
     """
-    parts = urlsplit(url)
-    hostname = parts.hostname or ""
-    netloc = hostname
-    if parts.port is not None:
-        netloc = f"{hostname}:{parts.port}"
+    try:
+        parts = urlsplit(url)
+        hostname = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        return "[unparseable url]"
+    netloc = f"{hostname}:{port}" if port is not None else hostname
     return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 

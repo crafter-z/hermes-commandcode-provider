@@ -243,8 +243,17 @@ class _HttpError(Exception):
         self.body = body
 
 
-class _QuotaTimeoutError(Exception):
-    pass
+class _QuotaTimeoutError(QuotaError):
+    """The single wall-clock budget for the whole fetch was exhausted.
+
+    Subclasses ``QuotaError`` so ``fetch_quota`` never leaks an internal type,
+    and carries a user-facing message — ``/commandcode-quota`` renders
+    ``str(exc)`` verbatim, so an argument-less exception would show as an empty
+    error.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Command Code quota request timed out")
 
 
 _BUILD_URL_QUERY_KEYS = ("orgId", "since")
