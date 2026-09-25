@@ -65,32 +65,48 @@ def cache_path() -> Path:
     return Path(home) / "cache" / _CACHE_FILENAME
 
 
-def _catalog() -> Any:
-    """Return the ``catalog`` snapshot module under any load mode.
+def _load_sibling(name: str) -> Any:
+    """Load a sibling module of this plugin under any load mode.
 
     Resolution order: Hermes runtime package attribute, in-package relative
-    import, then a bare-file import of the sibling ``catalog.py`` (quota
-    plugin lazy fallback). Memoized — catalog.py is static data/functions.
+    import, then a bare-file import of the sibling ``<name>.py`` (the quota
+    plugin's lazy fallback loads these modules by path). Returns ``None`` when
+    the module cannot be found.
+    """
+    module = sys.modules.get(f"{_RUNTIME_PACKAGE}.{name}")
+    if module is not None:
+        return module
+    if __package__:
+        try:
+            return importlib.import_module(f".{name}", __package__)
+        except ImportError:
+            pass
+    sibling = Path(__file__).resolve().parent / f"{name}.py"
+    if sibling.is_file():
+        spec = importlib.util.spec_from_file_location(f"_cc_{name}_lazy", str(sibling))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    return None
+
+
+def _catalog() -> Any:
+    """Return the ``catalog`` snapshot module, with overrides applied.
+
+    ``catalog.py`` is an upstream mirror; ``catalog_overrides.py`` carries this
+    project's own capability declarations and is merged onto it here, so every
+    consumer (this module, the provider profile, the quota plugin's lazy loader)
+    sees identical tables. Memoized — catalog.py is static data/functions.
     """
     global _catalog_module
     if _catalog_module is not None:
         return _catalog_module
 
-    catalog = sys.modules.get(f"{_RUNTIME_PACKAGE}.catalog")
-    if catalog is None:
-        try:
-            from . import catalog  # normal in-package import
-        except ImportError:
-            catalog = None
-    if catalog is None:
-        # Loaded as a bare file: sibling catalog.py sits right next to us.
-        sibling = Path(__file__).resolve().parent / "catalog.py"
-        if sibling.is_file():
-            spec = importlib.util.spec_from_file_location(
-                "_cc_catalog_lazy", str(sibling)
-            )
-            catalog = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(catalog)
+    catalog = _load_sibling("catalog")
+    if catalog is not None:
+        overrides = _load_sibling("catalog_overrides")
+        if overrides is not None:
+            overrides.apply_overrides(catalog)
     _catalog_module = catalog
     return catalog
 

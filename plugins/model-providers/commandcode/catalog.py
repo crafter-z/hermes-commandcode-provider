@@ -1,15 +1,16 @@
 """Command Code model catalog snapshot.
 
-Generated from command-code@1.47.0 by `python sync_catalog.py --write`.
+Generated from command-code@1.53.0 by `python sync_catalog.py --write`.
 Do not edit manually.
 """
 
 from __future__ import annotations
 
 # The CLI version this snapshot was generated from. Bump on re-sync.
-COMMAND_CODE_CLI_VERSION = "1.47.0"
+COMMAND_CODE_CLI_VERSION = "1.53.0"
 
 MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
+    "MiniMaxAI/MiniMax-M3": ("low", "medium", "high"),
     "Qwen/Qwen3.8-27B": ("low", "medium", "xhigh"),
     "Qwen/Qwen3.8-Flash": ("low", "medium", "xhigh"),
     "Qwen/Qwen3.8-Max": ("low", "medium", "xhigh"),
@@ -25,6 +26,7 @@ MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "deepseek/deepseek-v4-flash-fast": ("low", "high", "max"),
     "deepseek/deepseek-v4-flash-vision-exp": ("high", "max"),
     "deepseek/deepseek-v4-pro": ("high", "max"),
+    "deepseek/deepseek-v4.1-flash": ("low", "high", "max"),
     "google/gemini-3.1-flash-lite": ("low", "medium", "high"),
     "google/gemini-3.5-flash": ("low", "medium", "high"),
     "google/gemini-3.5-flash-lite": ("low", "medium", "high"),
@@ -38,10 +40,11 @@ MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "gpt-5.6-luna": ("low", "medium", "high", "xhigh", "max"),
     "gpt-5.6-sol": ("low", "medium", "high", "xhigh", "max"),
     "gpt-5.6-terra": ("low", "medium", "high", "xhigh", "max"),
+    "gpt-6-astra": ("low", "medium", "high", "xhigh", "max"),
     "meta/muse-spark-1.1": ("low", "medium", "high", "xhigh"),
     "meta/muse-spark-1.2": ("low", "medium", "high", "xhigh"),
     "meta/muse-spark-1.2-contributor": ("low", "medium", "high", "xhigh"),
-    "meta/muse-spark-1.3": ("low", "medium", "high", "xhigh"),
+    "meta/muse-spark-1.3": ("low", "medium", "high", "xhigh", "max"),
     "meta/muse-spark-1.3-contributor": ("low", "medium", "high", "xhigh"),
     "moonshotai/Kimi-K3": ("low", "high", "max"),
     "sakana/fugu-ultra": ("high", "xhigh"),
@@ -71,6 +74,7 @@ MODEL_INPUT_MODALITIES: dict[str, tuple[str, ...]] = {
     "claude-sonnet-4-6": ("text", "image"),
     "claude-sonnet-5": ("text", "image"),
     "deepseek/deepseek-v4-flash-vision-exp": ("text", "image"),
+    "deepseek/deepseek-v4.1-flash": ("text", "image"),
     "google/gemini-3.1-flash-lite": ("text", "image"),
     "google/gemini-3.5-flash": ("text", "image"),
     "google/gemini-3.5-flash-lite": ("text", "image"),
@@ -84,6 +88,7 @@ MODEL_INPUT_MODALITIES: dict[str, tuple[str, ...]] = {
     "gpt-5.6-luna": ("text", "image"),
     "gpt-5.6-sol": ("text", "image"),
     "gpt-5.6-terra": ("text", "image"),
+    "gpt-6-astra": ("text", "image"),
     "meta/muse-spark-1.1": ("text", "image"),
     "meta/muse-spark-1.2": ("text", "image"),
     "meta/muse-spark-1.2-contributor": ("text", "image"),
@@ -127,6 +132,7 @@ MODEL_REASONING: frozenset[str] = frozenset(
     "deepseek/deepseek-v4-flash-fast": True,
     "deepseek/deepseek-v4-flash-vision-exp": True,
     "deepseek/deepseek-v4-pro": True,
+    "deepseek/deepseek-v4.1-flash": True,
     "google/gemini-3.1-flash-lite": True,
     "google/gemini-3.5-flash": True,
     "google/gemini-3.5-flash-lite": True,
@@ -140,6 +146,8 @@ MODEL_REASONING: frozenset[str] = frozenset(
     "gpt-5.6-luna": True,
     "gpt-5.6-sol": True,
     "gpt-5.6-terra": True,
+    "gpt-6-astra": True,
+    "inclusionai/ling-3.0-flash-sante:free": True,
     "meituan/LongCat-2.0:free": True,
     "meta/muse-spark-1.1": True,
     "meta/muse-spark-1.2": True,
@@ -168,6 +176,7 @@ MODEL_REASONING: frozenset[str] = frozenset(
 
 MODEL_MAX_OUTPUT_TOKENS: dict[str, int] = {
     "Qwen/Qwen3.8-27B": 32_768,
+    "inclusionai/ling-3.0-flash-sante:free": 32_768,
     "poolside/laguna-s-2.1-free": 32_768,
     "z-ai/glm-5.3-flash": 131_072,
 }

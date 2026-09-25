@@ -28,7 +28,7 @@ tmp = Path(tempfile.mkdtemp(prefix="cccache_"))
 pkg_root = tmp / "hermes_plugins"
 (pkg_root / "provider").mkdir(parents=True)
 (pkg_root / "quota").mkdir()
-for name in ("cache.py", "catalog.py"):
+for name in ("cache.py", "catalog.py", "catalog_overrides.py"):
     shutil.copy(SRC_PROVIDER / name, pkg_root / "provider" / name)
 (pkg_root / "provider" / "__init__.py").write_text("", encoding="utf-8")
 shutil.copy(SRC_QUOTA / "status.py", pkg_root / "quota" / "status.py")
@@ -64,6 +64,7 @@ LIVE_MODELS = [
     {"id": "claude-sonnet-5", "name": "Claude Sonnet 5", "context_length": 200_000},
     {"id": "claude-opus-5", "name": "Claude Opus 5", "context_length": 200_000},
     {"id": "deepseek/deepseek-v4-flash", "name": "DeepSeek V4 Flash", "context_length": 131_072},
+    {"id": "deepseek/deepseek-v4.1-flash", "name": "DeepSeek V4.1 Flash", "context_length": 1_000_000},
     {"id": "google/gemini-3.5-flash", "name": "Gemini 3.5 Flash", "context_length": 1_000_000},
 ]
 
@@ -116,6 +117,17 @@ check(
     "cached record is enriched",
     all(k in first for k in ("api", "reasoning", "contextWindow", "maxTokens", "input", "efforts")),
     sorted(first),
+)
+v41 = next((m for m in raw["models"] if m["id"] == "deepseek/deepseek-v4.1-flash"), {})
+check(
+    "catalog_overrides reaches enriched records",
+    tuple(v41.get("efforts") or ()) == ("low", "medium", "high", "xhigh", "max"),
+    v41.get("efforts"),
+)
+check(
+    "image modality survives enrichment + JSON round-trip",
+    "image" in tuple(v41.get("input") or ()),
+    v41.get("input"),
 )
 
 # ── 4. enrich_models api/reasoning mapping (raw records, not from disk) ──────
