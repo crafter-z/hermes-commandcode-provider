@@ -3,3 +3,7 @@ kind: standalone
 version: 1.0.1
 description: "Show Command Code account usage and quota via /commandcode-quota."
 author: community
+# /commandcode-quota, /commandcode-refresh, /commandcode-status plus the
+# session-start pricing injection the provider profile relies on.
+provides_hooks:
+  - on_session_start
