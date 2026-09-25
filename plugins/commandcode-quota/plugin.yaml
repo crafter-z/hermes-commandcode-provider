@@ -1,5 +1,5 @@
 name: commandcode-quota
 kind: standalone
-version: 1.0.0
+version: 1.0.1
 description: "Show Command Code account usage and quota via /commandcode-quota."
 author: community
