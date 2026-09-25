@@ -24,6 +24,11 @@ jobs:
   # regenerated catalog (--write) so the maintainer just reviews + merges.
   check:
     runs-on: ubuntu-latest
+    permissions:
+      # contents: write — the action pushes the regenerated catalog branch.
+      contents: write
+      # pull-requests: write — the action opens/updates the draft drift PR.
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,12 +60,15 @@ jobs:
         with:
           commit-message: "sync(commandcode): refresh model metadata snapshot"
           branch: commandcode-metadata-sync
-          base: main
+          # Never hardcode: the repo's default branch (master) is the PR base.
+          base: ${{ github.event.repository.default_branch }}
           title: "Update Command Code model metadata snapshot"
           body-path: cc-drift-report.md
           author: "commandcode-sync <commandcode-sync@users.noreply.github.com>"
           committer: "commandcode-sync <commandcode-sync@users.noreply.github.com>"
-          add-paths: plugins/model-providers/commandcode/catalog.py
+          add-paths: |
+            plugins/model-providers/commandcode/catalog.py
+            README.md
           draft: true
 
   # Manual `sync` action: regenerate catalog and push directly.
@@ -82,7 +90,7 @@ jobs:
           python scripts/sync_catalog.py ${{ github.event.inputs.package || 'command-code@latest' }} --write
           git config user.name "commandcode-sync"
           git config user.email "commandcode-sync@users.noreply.github.com"
-          git add plugins/model-providers/commandcode/catalog.py
+          git add plugins/model-providers/commandcode/catalog.py README.md
           if git diff --cached --quiet; then
             echo "No changes (metadata already current)."
           else
