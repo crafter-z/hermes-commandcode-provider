@@ -16,12 +16,18 @@ model catalog, per-model metadata, pricing display, and a daily metadata drift c
   `https://api.commandcode.ai/provider/v1/models`. They are **never hardcoded**; the
   snapshot only carries per-model *metadata* (image input, reasoning capability,
   selectable reasoning efforts, per-model output caps) that the API does not expose.
-- **Two provider profiles** — `commandcode` (OpenAI chat completions) and
-  `commandcode-anthropic` (Anthropic Messages), both registered as a
-  `$HERMES_HOME` override that supersedes Hermes's bundled `commandcode` profile.
-- **Per-model metadata hooks** — reasoning effort clamping, vision capability,
-  per-model max-token caps, wired through `ProviderProfile` hooks so `/model`
-  shows correct reasoning/vision/cost metadata.
+- **Two provider profiles, one wire each** — `commandcode` (OpenAI chat
+  completions) and `commandcode-anthropic` (Anthropic Messages), both registered
+  as a `$HERMES_HOME` override that supersedes Hermes's bundled `commandcode`
+  profile. Each profile publishes only the ids its own endpoint accepts: Claude
+  models are callable **only** through `/provider/v1/messages`, every other model
+  **only** through `/provider/v1/chat/completions` (the other wire answers 400
+  `unsupported_model` / "not supported on this endpoint"), so the picker list is
+  filtered per profile.
+- **Per-model metadata hooks** — reasoning effort clamping, per-wire vision
+  default, per-model max-token caps, wired through the `ProviderProfile` hooks
+  Hermes actually calls (`fetch_models`, `get_max_tokens`,
+  `supported_reasoning_efforts`, `build_api_kwargs_extras`, `default_vision_model`).
 - **Pricing injection** — Command Code's Provider API catalog has no prices, so a
   static table is injected into `agent.usage_pricing._OFFICIAL_DOCS_PRICING`
   (no editing of bundled core files; survives `hermes update`). Keys are
@@ -34,7 +40,9 @@ model catalog, per-model metadata, pricing display, and a daily metadata drift c
   usage/quota from the same alpha endpoints the Command Code CLI `/usage` uses
   (whoami, billing/credits, billing/subscriptions, usage/summary).
 - **Metadata drift check** — `scripts/sync_catalog.py` regenerates the snapshot
-  from the `command-code` npm CLI package, with a daily GitHub Actions job.
+  from the `command-code` npm CLI package; a GitHub Actions job runs the check
+  daily (draft drift PR on change, hard failure when the check itself cannot
+  run) while an offline contract-test job runs on every push and pull request.
 
 ## Layout
 
@@ -53,11 +61,16 @@ plugins/commandcode-quota/                # standalone plugin
   quota_format.py    # text renderer
   plugin.yaml        # manifest (kind: standalone)
 scripts/sync_catalog.py                   # metadata sync / drift-check (--write)
-.github/workflows/commandcode-metadata.yml # daily drift PR + manual sync
+.github/workflows/commandcode-metadata.yml # tests on push/PR + daily drift PR + manual sync
 tests/test_quota_plugin.py                # quota fetch/format contract test (run w/ python)
 tests/test_cache_refresh.py               # cache/refresh/status contract test (run w/ python)
 tests/test_catalog_metadata.py            # catalog snapshot + overrides contract test
+tests/test_provider_profile.py            # profile hooks: wire split, effort clamp, vision default
+tests/test_pricing.py                     # pricing table + tier mapping contract test
 ```
+
+All five suites run offline (stubbed Hermes core, fake `/models` server) via
+`python tests/<name>.py`; CI runs them on every push and pull request.
 
 ### Metadata sources
 
@@ -117,11 +130,12 @@ Then in a session: `/commandcode-quota`.
 
 Every live model fetch (`provider_model_ids`, `/model`) now persists the
 enriched catalog to `<HERMES_HOME>/cache/commandcode-models.json` (written
-atomically by `plugins/model-providers/commandcode/cache.py`), so the model
-list and its live-observed `context_length` windows survive offline sessions —
-`get_model_metadata` and the commands below fall back to that file when
-`/models` is unreachable. The quota plugin registers two commands to manage and
-inspect the cache:
+atomically by `plugins/model-providers/commandcode/cache.py`), so the last
+live-observed catalog — model ids plus the `context_length` windows seen live —
+survives a failed fetch, and the two commands below fall back to that file when
+`/models` is unreachable. (Hermes itself reads per-model metadata from its own
+catalog sources, not from this file.) The quota plugin registers two commands to
+manage and inspect the cache:
 
 - `/commandcode-refresh` — re-fetch the catalog (live first, disk-cache
   fallback). Live result: `Command Code model catalog refreshed (N models from
@@ -133,8 +147,9 @@ inspect the cache:
   ("never" when unset), cache path, endpoint, and any warning. URLs are trimmed
   to `protocol://host/path` and key/token/secret values are scrubbed.
 
-Cache location defaults to `<HERMES_HOME>/cache/commandcode-models.json`
-(`HERMES_HOME` unset: `~/AppData/Local/hermes`); override it with
+Cache location defaults to `<HERMES_HOME>/cache/commandcode-models.json`;
+with `HERMES_HOME` unset it falls back to Hermes' own default home
+(`%LOCALAPPDATA%\hermes` on Windows, `~/.hermes` elsewhere). Override it with
 `COMMANDCODE_MODELS_CACHE`. The refresh fetch timeout (default 10 s) is
 configurable via `COMMANDCODE_MODELS_TIMEOUT_MS`.
 
@@ -146,7 +161,7 @@ reasoning capability, selectable efforts, image input, and per-model output caps
 live in the CLI package's `reference/models.md` and `dist/cli.mjs`.
 
 ```sh
-# Report-only: exit 1 if the checked-in snapshot drifted from upstream
+# Report-only: exit 0 when current, 1 on drift, 2 when the check cannot run
 python scripts/sync_catalog.py
 
 # Regenerate catalog.py + README version
@@ -156,9 +171,11 @@ python scripts/sync_catalog.py --write
 python scripts/sync_catalog.py command-code@1.65.2 --write
 ```
 
-The GitHub Actions workflow runs the check daily; on drift it opens a draft PR
-with the regenerated `catalog.py` for review. A manual `sync` dispatch regenerates
-and pushes directly.
+The GitHub Actions workflow runs the check daily; on drift (exit 1) it opens a
+draft PR with the regenerated `catalog.py` + `README.md` for review. Exit 2 — npm
+or the CLI's parser failed — fails the job instead of opening a PR built from an
+error report. A manual `sync` dispatch regenerates and pushes the result
+straight to the default branch.
 
 ## Environment variables
 
@@ -173,12 +190,20 @@ and pushes directly.
 
 ## Notes & divergence
 
+- **Pricing table** — `pricing.py` is a hand-maintained port of the reference
+  plugin's `src/pricing.ts`, re-synced from it on 2026-09-24; the Command Code
+  Usage page stays authoritative for billed amounts. Keys are the bare
+  lowercased model id (`resolve_billing_route` strips the vendor prefix), and
+  Claude models are keyed under `commandcode-anthropic` because that is the only
+  wire that serves them.
 - **Pricing tiers**: Hermes `PricingEntry` supports a single tier threshold with
-  whole-request `*_above` replacement. Single-threshold models (`grok-4.6`,
-  `qwen3.7-plus`) map exactly; multi-threshold models (`qwen3.8-max`,
-  `qwen3.7-flash`) collapse to their dominant flat rate (documented in
-  `pricing.py`). DeepSeek V4 shows the documented off-peak rate (17h/day). The
-  Command Code Usage page is authoritative for billed amounts.
+  whole-request `*_above` replacement, carried for all four rates including
+  cache writes. Single-threshold models (`grok-4.6`, `qwen3.7-plus`, the `gpt-6`
+  family) map exactly; a multi-threshold model (`qwen3.7-flash`) keeps its real
+  base rate plus the highest tier, so only the intermediate tiers are
+  approximate (documented in `pricing.py`). DeepSeek V4 shows the documented
+  off-peak rate (17h/day). `xai/grok-4.7` is listed at its 40% launch discount,
+  which the reference table expires on 2026-09-27 — re-sync after that date.
 - **No Go-plan `/alpha/generate` transport and no OAuth browser login** — this
   integration targets the Provider/GOAT path only. Add those only if you need
   Go-tier accounts.
