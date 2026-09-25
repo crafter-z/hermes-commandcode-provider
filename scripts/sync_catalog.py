@@ -46,6 +46,21 @@ CLI_BUNDLE_PATH = "dist/cli.mjs"
 TEXT_ONLY_MARKER = ',__name(isKnownTextOnlyModel,"isKnownTextOnlyModel")'
 VALID_EFFORTS = {"minimal", "low", "medium", "high", "xhigh", "max"}
 
+# npm package spec accepted on the command line: letters, digits and the
+# characters npm allows in name/scope/tag/version. The spec arrives unquoted
+# from a workflow dispatch input and reaches a shell command line on Windows,
+# so it is validated rather than trusted.
+_PACKAGE_SPEC_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9@/._+-]*$")
+
+
+def _validate_package_spec(package_spec: str) -> str:
+    """Return the trimmed spec, or raise when it is not a plain npm spec."""
+    spec = (package_spec or "").strip()
+    if not _PACKAGE_SPEC_RE.match(spec):
+        raise ValueError(f"Invalid Command Code package spec: {package_spec!r}")
+    return spec
+
+
 # ── Data model (matches TS CommandCodeModelMetadata) ─────────────────────────
 
 
@@ -404,11 +419,11 @@ def _run_npm(args: list[str], cwd: str) -> str:
     if os.name != "nt":
         result = subprocess.run([npm, *args], cwd=cwd, capture_output=True, text=True)
     else:
-        # npm is a .cmd shim on Windows; route through the shell. shutil.which
-        # may return a space-containing path; quote it so the shell treats it
-        # as one token.
+        # npm is a .cmd shim on Windows, so it needs cmd.exe; build the command
+        # line with list2cmdline so every argument is quoted for the shell
+        # (shutil.which may return a space-containing path).
         result = subprocess.run(
-            f'"{npm}" {" ".join(args)}',
+            subprocess.list2cmdline([npm, *args]),
             cwd=cwd,
             shell=True,
             capture_output=True,
@@ -439,7 +454,12 @@ def inspect_packed_package(package_spec: str):
         import os
 
         with tarfile.open(os.path.join(directory, filename)) as tar:
-            tar.extractall(directory)
+            try:
+                # Python 3.12+ warns (and 3.14 defaults) without an explicit
+                # extraction filter; npm tarballs are plain files/dirs.
+                tar.extractall(directory, filter="data")
+            except TypeError:  # pragma: no cover - Python without tar filters
+                tar.extractall(directory)
 
         package_dir = Path(directory) / "package"
         package_json = json.loads((package_dir / "package.json").read_text(encoding="utf-8"))
@@ -455,13 +475,22 @@ def inspect_packed_package(package_spec: str):
         shutil.rmtree(directory, ignore_errors=True)
 
 
+# ── exit codes (workflow contract) ───────────────────────────────────────────
+# 0 = metadata current, 1 = drift detected (report/PR path), 2 = the check could
+# not run at all (npm or parser failure). The workflow keys its PR steps on 1
+# and fails the job on 2, so an error can never be reported as drift.
+EXIT_OK = 0
+EXIT_DRIFT = 1
+EXIT_ERROR = 2
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 
 def main() -> int:
     write = "--write" in sys.argv
-    package_spec = next(
-        (a for a in sys.argv if a.startswith("command-code@")), "command-code@latest"
+    package_spec = _validate_package_spec(
+        next((a for a in sys.argv if a.startswith("command-code@")), "command-code@latest")
     )
 
     current = import_current_metadata()
@@ -480,7 +509,7 @@ def main() -> int:
                 encoding="utf-8",
             )
         print(f"Synchronized static metadata with command-code@{upstream_version}.")
-        return 0
+        return EXIT_OK
 
     if diff.has_diff():
         print(
@@ -488,13 +517,13 @@ def main() -> int:
             "Run `python sync_catalog.py --write` to update catalog.py.",
             file=sys.stderr,
         )
-        return 1
-    return 0
+        return EXIT_DRIFT
+    return EXIT_OK
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as exc:  # noqa: BLE001
-        print(str(exc), file=sys.stderr)
-        sys.exit(1)
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(EXIT_ERROR)
