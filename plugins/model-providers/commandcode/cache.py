@@ -2,10 +2,12 @@
 
 The Provider API ``/models`` endpoint is live-only and returns bare
 ``{id, name, context_length}`` records. This module persists the last good
-catalog to ``<HERMES_HOME>/cache/commandcode-models.json`` so sessions stay
-usable offline and per-model metadata (context window observed live) survives
-restarts. ``enrich_models`` merges the checked-in ``catalog.py`` snapshot
-(reasoning, vision input, output caps, selectable efforts) onto each record.
+catalog to ``<HERMES_HOME>/cache/commandcode-models.json`` so the
+``/commandcode-refresh`` and ``/commandcode-status`` commands can report the
+last live-observed catalog (model ids plus the context windows seen live)
+after a failed fetch, instead of claiming zero models. ``enrich_models`` merges
+the checked-in ``catalog.py`` snapshot (reasoning, vision input, output caps,
+selectable efforts) onto each record.
 
 Design notes:
 
@@ -37,8 +39,21 @@ _CACHE_FILENAME = "commandcode-models.json"
 # Env override documented in README; else <HERMES_HOME>/cache/.
 _CACHE_ENV_VAR = "COMMANDCODE_MODELS_CACHE"
 _HERMES_HOME_ENV_VAR = "HERMES_HOME"
-# Windows default used when HERMES_HOME is unset (mirrors Hermes' default).
-_WINDOWS_DEFAULT_HOME = Path.home() / "AppData" / "Local" / "hermes"
+
+
+def _default_home() -> Path:
+    """Hermes' own default home, used when ``HERMES_HOME`` is unset.
+
+    Mirrors Hermes' resolution: ``%LOCALAPPDATA%\\hermes`` on Windows,
+    ``~/.hermes`` on every other platform (Hermes never uses the Windows path
+    off-Windows, so neither do we).
+    """
+    if os.name == "nt":
+        base = (os.environ.get("LOCALAPPDATA") or "").strip()
+        root = Path(base) if base else Path.home() / "AppData" / "Local"
+        return root / "hermes"
+    return Path.home() / ".hermes"
+
 
 _USER_AGENT = "hermes-commandcode-provider/1.0 (+model-catalog-cache)"
 
@@ -54,14 +69,14 @@ def cache_path() -> Path:
 
     ``COMMANDCODE_MODELS_CACHE`` overrides outright; otherwise the file lives
     under ``<HERMES_HOME>/cache/`` (``HERMES_HOME`` unset falls back to
-    ``~/AppData/Local/hermes``).
+    ``_default_home()``).
     """
     override = (os.environ.get(_CACHE_ENV_VAR) or "").strip()
     if override:
         return Path(override).expanduser()
     home = (os.environ.get(_HERMES_HOME_ENV_VAR) or "").strip()
     if not home:
-        home = str(_WINDOWS_DEFAULT_HOME)
+        return _default_home() / "cache" / _CACHE_FILENAME
     return Path(home) / "cache" / _CACHE_FILENAME
 
 
@@ -111,7 +126,7 @@ def _catalog() -> Any:
     return catalog
 
 
-def _write(cache_path: Path, models: list[dict]) -> None:
+def write_cache(cache_path: Path, models: list[dict]) -> None:
     """Atomically persist ``{"version": 1, "models": [...]}`` to disk."""
     path = Path(cache_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -213,7 +228,7 @@ def fetch_and_cache(
     if records:
         enriched = enrich_models(records)
         try:
-            _write(cache_path, enriched)
+            write_cache(cache_path, enriched)
         except OSError:
             # A cache-write failure must never fail a live fetch.
             pass
