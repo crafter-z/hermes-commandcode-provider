@@ -108,6 +108,17 @@ assert "Credits" in out and "Remaining: $125.00" in out, out
 assert "Plan: goat" in out and "Usage" in out, out
 print("=== format_quota output ===")
 print(out)
+
+# ── timeout must surface a real message, never an empty error ───────────────
+from hermes_plugins.commandcode_quota.quota import QuotaError  # noqa: E402
+
+try:
+    fetch_quota("test-key", base_url=f"http://127.0.0.1:{port}", timeout_ms=0)
+except QuotaError as exc:
+    timeout_message = str(exc)
+else:
+    raise AssertionError("a zero-ms budget must raise QuotaError")
+assert "timed out" in timeout_message, repr(timeout_message)
 print("=== quota plugin smoke OK ===")
 
 srv.shutdown()

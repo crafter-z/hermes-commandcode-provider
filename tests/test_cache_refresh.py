@@ -183,9 +183,15 @@ try:
     set_env(COMMANDCODE_MODELS_CACHE=str(override))
     check("cache_path honors COMMANDCODE_MODELS_CACHE", cache.cache_path() == override, str(cache.cache_path()))
     set_env(HERMES_HOME=None, COMMANDCODE_MODELS_CACHE=None)
+    if os.name == "nt":
+        default_home = (
+            Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "hermes"
+        )
+    else:
+        default_home = Path.home() / ".hermes"
     check(
-        "cache_path defaults to ~/AppData/Local/hermes",
-        cache.cache_path() == Path.home() / "AppData" / "Local" / "hermes" / "cache" / "commandcode-models.json",
+        "cache_path defaults to Hermes' own home for this platform",
+        cache.cache_path() == default_home / "cache" / "commandcode-models.json",
         str(cache.cache_path()),
     )
 finally:
@@ -201,6 +207,11 @@ check(
 check(
     "redact_url keeps explicit port",
     status.redact_url("https://host:8443/a/b") == "https://host:8443/a/b",
+)
+check(
+    "redact_url survives a malformed port",
+    status.redact_url("http://host:abc/models") == "[unparseable url]",
+    status.redact_url("http://host:abc/models"),
 )
 secret_text = "Bearer sk-live-abc123 user_12345 cc_proj_9 secret=hunter2 api-key=zzz ?token=abc"
 redacted = status.redact_text(secret_text)
