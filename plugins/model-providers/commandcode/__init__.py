@@ -127,12 +127,39 @@ def _fetch_commandcode_models(
 # model's declared selectable set; unknown models expose no effort knob.
 _HERMES_EFFORT_ORDER = ("minimal", "low", "medium", "high", "xhigh", "max")
 
+# The only values the endpoint is *known* to accept as ``reasoning_effort``.
+# Live-probed 2026-09-10 (see catalog_overrides.py): 200 for these five, 400
+# ("Invalid option: expected one of ...") for ``minimal`` and for garbage.
+#
+# The generated snapshot deliberately mirrors upstream's table verbatim and
+# ``sync_catalog.py`` carries unseen levels into it as reviewable drift, so the
+# projection onto this verified set has to happen at the wire boundary — here and
+# nowhere else. A level this project cannot vouch for is never advertised as
+# selectable and never sent; the model simply has no effort knob until the
+# endpoint's vocabulary is confirmed.
+_WIRE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+_WIRE_EFFORT_SET = frozenset(_WIRE_EFFORTS)
+
+# ``off`` (and Hermes' ``none``) mean "run without reasoning", not "reason at
+# level off". The CLI declares ``off`` for models whose reasoning can be switched
+# off — DeepSeek V4 ships ("off", "high", "max") — and never puts it on the wire:
+# it omits ``reasoning_effort`` entirely. The endpoint rejects the value
+# (``Invalid option: expected one of "low"|"medium"|"high"|"xhigh"|"max"``), and
+# Hermes expresses the same thing with ``reasoning_config.enabled = False``.
+_DISABLED_EFFORTS = frozenset({"off", "none"})
+
+
+def _declared_levels(declared: tuple[str, ...]) -> tuple[str, ...]:
+    """The declared efforts that are real levels this project can send."""
+    return tuple(e for e in declared if e in _WIRE_EFFORT_SET)
+
 
 def _clamp_effort(effort: str, declared: tuple[str, ...]) -> str | None:
     """Clamp a requested effort to the nearest supported level, or None."""
-    if not declared:
+    levels = _declared_levels(declared)
+    if not levels:
         return None
-    if effort in declared:
+    if effort in levels:
         return effort
     # Prefer the nearest weaker declared level; never escalate except through
     # the floor below, which exists because the endpoint rejects a level the
@@ -142,13 +169,16 @@ def _clamp_effort(effort: str, declared: tuple[str, ...]) -> str | None:
     if request_idx is None:
         return None
     for level in reversed(ordered[:request_idx]):
-        if level in declared:
+        if level in levels:
             return level
-    # Request sits below every declared level: use the model's floor.
-    try:
-        return min(declared, key=lambda x: ordered.index(x))
-    except ValueError:
+    # The request sits below every declared level, so the answer is the model's
+    # floor. That is only the floor while the declared set is fully understood:
+    # ``_declared_levels`` drops levels this project cannot map, so an unmappable
+    # level could be the real floor and the level we see would be the ceiling.
+    # Escalating a "low" request to it is worse than omitting the field.
+    if any(e not in ordered for e in declared if e not in _DISABLED_EFFORTS):
         return None
+    return min(levels, key=ordered.index)
 
 
 class CommandCodeProfile(ProviderProfile):
@@ -205,11 +235,13 @@ class CommandCodeProfile(ProviderProfile):
         if not model:
             return None
         ensure_pricing()
-        efforts = efforts_for_model(model)
+        efforts = _declared_levels(tuple(efforts_for_model(model)))
         if not efforts:
-            # Reasoning-capable but no declared levels → no effort knob.
+            # Reasoning-capable but no selectable levels → no effort knob. An
+            # ``off``-only declaration lands here too: turning reasoning off is
+            # ``reasoning_config.enabled = False``, not an effort value.
             return ()
-        return tuple(efforts)
+        return efforts
 
     def build_api_kwargs_extras(
         self,
@@ -230,8 +262,11 @@ class CommandCodeProfile(ProviderProfile):
             if not enabled:
                 return extra_body, top_level
             effort = (reasoning_config.get("effort") or "").strip().lower()
-            if effort and effort != "none":
-                clamped = _clamp_effort(effort, efforts)
+            if effort and effort not in _DISABLED_EFFORTS:
+                # Clamp against upstream's raw declaration, not the advertised
+                # projection: the projection drops levels this project cannot
+                # map, and the floor logic has to know that happened.
+                clamped = _clamp_effort(effort, tuple(efforts_for_model(model)))
                 if clamped is not None:
                     top_level["reasoning_effort"] = clamped
         return extra_body, top_level

@@ -67,9 +67,10 @@ tests/test_cache_refresh.py               # cache/refresh/status contract test (
 tests/test_catalog_metadata.py            # catalog snapshot + overrides contract test
 tests/test_provider_profile.py            # profile hooks: wire split, effort clamp, vision default
 tests/test_pricing.py                     # pricing table + tier mapping contract test
+tests/test_sync_catalog_parser.py         # metadata-sync parser + exit-code contract test
 ```
 
-All five suites run offline (stubbed Hermes core, fake `/models` server) via
+All six suites run offline (stubbed Hermes core, fake `/models` server) via
 `python tests/<name>.py`; CI runs them on every push and pull request.
 
 ### Metadata sources
@@ -86,6 +87,21 @@ per-model output caps) comes from two files:
   and drop it once upstream ships the same value.
 
 The model ID list is always fetched live from `/models`; neither file carries it.
+
+`models.md` uses `off` for models whose reasoning can be switched off (the
+DeepSeek V4 family declares `("off", "high", "max")`). The generated snapshot
+mirrors that value verbatim, while the profile treats `off` and Hermes' `none` as
+**disable sentinels, not levels**: they are never advertised as selectable
+efforts, never sent as `reasoning_effort` (the endpoint 400s on `off` — the CLI
+omits the field instead), and never take part in the effort clamp. Turning
+reasoning off is `reasoning_config.enabled = False`.
+
+The profile also projects the snapshot onto the effort values the endpoint is
+*known* to accept (`low`, `medium`, `high`, `xhigh`, `max`, live-probed in
+`catalog_overrides.py`). That is the wire boundary: a level upstream adds — which
+the parser deliberately carries into the snapshot as reviewable drift — is never
+advertised as selectable and never sent until this project can vouch for it. A
+model whose declared levels are all unverified simply has no effort knob.
 
 ## Install
 
@@ -168,7 +184,7 @@ python scripts/sync_catalog.py
 python scripts/sync_catalog.py --write
 
 # Pin a specific CLI version
-python scripts/sync_catalog.py command-code@1.65.2 --write
+python scripts/sync_catalog.py command-code@1.81.0 --write
 ```
 
 The GitHub Actions workflow runs the check daily; on drift (exit 1) it opens a
@@ -176,6 +192,16 @@ draft PR with the regenerated `catalog.py` + `README.md` for review. Exit 2 — 
 or the CLI's parser failed — fails the job instead of opening a PR built from an
 error report. A manual `sync` dispatch regenerates and pushes the result
 straight to the default branch.
+
+That split is what keeps the daily job meaningful: exit 2 is reserved for a table
+the parser cannot read at all (no rows, a malformed row, a repeated model id with
+*conflicting* efforts, a missing bundle marker, an npm failure), while *data*
+surprises are drift. A new reasoning-effort value is the case that matters —
+upstream adding `off` for the DeepSeek V4 family once turned a routine re-sync
+into eleven days of red builds, because the parser validated effort values
+against a frozen allowlist. Effort values are now checked for shape and carried
+into the snapshot, with anything unfamiliar listed in the report for review.
+`tests/test_sync_catalog_parser.py` pins that contract offline.
 
 ## Environment variables
 

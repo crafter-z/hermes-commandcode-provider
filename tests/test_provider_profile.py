@@ -158,6 +158,93 @@ for config in ({"enabled": False, "effort": "high"}, {"effort": "none"}, {}):
     check(f"no effort sent for {config}", top_level == {}, top_level)
 check("no model → no effort sent", openai_profile.build_api_kwargs_extras(model=None) == ({}, {}))
 
+# ``off`` / ``none`` are disable sentinels, not levels. Upstream declares
+# ("off", "high", "max") for the DeepSeek V4 family; the endpoint answers 400 for
+# ``reasoning_effort:"off"``, and the CLI omits the field for it instead. So `off`
+# must never be advertised as a selectable effort and never reach the wire.
+ENDPOINT_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+OFF_MODEL = "deepseek/deepseek-v4-flash"
+check(
+    "the snapshot mirrors upstream's `off`",
+    "off" in catalog.efforts_for_model(OFF_MODEL),
+    catalog.efforts_for_model(OFF_MODEL),
+)
+check(
+    "a model declaring `off` advertises levels only",
+    openai_profile.supported_reasoning_efforts(OFF_MODEL) == ("high", "max"),
+    openai_profile.supported_reasoning_efforts(OFF_MODEL),
+)
+for requested in ("off", "none"):
+    _, top_level = openai_profile.build_api_kwargs_extras(
+        reasoning_config={"enabled": True, "effort": requested}, model=OFF_MODEL
+    )
+    check(f"effort {requested!r} sends no reasoning_effort", top_level == {}, top_level)
+
+# Sweep every declared model: the profile is only ever allowed to emit a level the
+# endpoint accepts, whatever Hermes asks for.
+sentinels_advertised = {}
+emitted: set[str] = set()
+for model_id in sorted(catalog.MODEL_EFFORTS):
+    advertised = openai_profile.supported_reasoning_efforts(model_id) or ()
+    if set(advertised) & {"off", "none"}:
+        sentinels_advertised[model_id] = advertised
+    for requested in ("minimal", "low", "medium", "high", "xhigh", "max", "off", "none", "garbage"):
+        _, top_level = openai_profile.build_api_kwargs_extras(
+            reasoning_config={"enabled": True, "effort": requested}, model=model_id
+        )
+        sent = top_level.get("reasoning_effort")
+        if sent is not None:
+            emitted.add(sent)
+check(
+    "no model advertises a disable sentinel as an effort level",
+    not sentinels_advertised,
+    sentinels_advertised,
+)
+check(
+    "the profile can only emit endpoint-accepted efforts",
+    emitted <= ENDPOINT_EFFORTS,
+    sorted(emitted),
+)
+
+# The snapshot may legitimately carry a level this project cannot vouch for: the
+# parser reports a new upstream value as reviewable drift rather than failing.
+# That value must not leak past the wire boundary — no advertising it as
+# selectable, no putting it on the wire, and no treating it as a floor that a
+# low request could be escalated to.
+FAKE = "vendor/foreign-levels"
+_original = catalog.MODEL_EFFORTS.get(FAKE)
+catalog.MODEL_EFFORTS[FAKE] = ("ultra", "very-high", "max")
+try:
+    check(
+        "an unverified level is not advertised as selectable",
+        openai_profile.supported_reasoning_efforts(FAKE) == ("max",),
+        openai_profile.supported_reasoning_efforts(FAKE),
+    )
+    for requested, expected in (("ultra", None), ("very-high", None), ("max", "max"), ("low", None)):
+        _, top_level = openai_profile.build_api_kwargs_extras(
+            reasoning_config={"enabled": True, "effort": requested}, model=FAKE
+        )
+        sent = top_level.get("reasoning_effort")
+        check(
+            f"unverified levels: {requested!r} → {sent!r}",
+            sent == expected,
+            f"expected {expected!r}",
+        )
+    catalog.MODEL_EFFORTS[FAKE] = ("ultra",)
+    _, top_level = openai_profile.build_api_kwargs_extras(
+        reasoning_config={"enabled": True, "effort": "high"}, model=FAKE
+    )
+    check(
+        "a model declaring only unverified levels gets no effort knob",
+        openai_profile.supported_reasoning_efforts(FAKE) == () and top_level == {},
+        (openai_profile.supported_reasoning_efforts(FAKE), top_level),
+    )
+finally:
+    if _original is None:
+        del catalog.MODEL_EFFORTS[FAKE]
+    else:
+        catalog.MODEL_EFFORTS[FAKE] = _original
+
 # ── 4. per-model output caps ────────────────────────────────────────────────
 capped = catalog.MODEL_MAX_OUTPUT_TOKENS
 if capped:

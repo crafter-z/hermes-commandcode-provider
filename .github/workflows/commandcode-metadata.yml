@@ -34,6 +34,7 @@ jobs:
           python-version: "3.11"
       - name: Run contract tests
         run: |
+          python tests/test_sync_catalog_parser.py
           python tests/test_quota_plugin.py
           python tests/test_cache_refresh.py
           python tests/test_catalog_metadata.py

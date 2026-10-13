@@ -60,8 +60,22 @@ check(
 )
 check(
     "override does not leak onto other models",
-    catalog.efforts_for_model("deepseek/deepseek-v4-flash") == ("high", "max"),
+    catalog.efforts_for_model("deepseek/deepseek-v4-flash") == ("off", "high", "max"),
     catalog.efforts_for_model("deepseek/deepseek-v4-flash"),
+)
+# The snapshot is a faithful mirror of upstream's table and keeps ``off`` — the
+# CLI's "reasoning switched off" value. Filtering it out before it reaches Hermes
+# or the wire is the profile's job (see test_provider_profile.py), never the
+# generated file's: a hand-edit here would break the drift check.
+check(
+    "the snapshot mirrors upstream's `off` sentinel verbatim",
+    "off" in catalog.efforts_for_model("deepseek/deepseek-v4-flash")
+    and "off" in catalog.efforts_for_model("deepseek/deepseek-v4-pro"),
+)
+check(
+    "the v4.1-flash override still replaces the whole declared tuple",
+    "off" not in catalog.efforts_for_model(MODEL),
+    catalog.efforts_for_model(MODEL),
 )
 overrides.apply_overrides(catalog)
 check(

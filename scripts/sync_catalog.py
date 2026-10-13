@@ -44,7 +44,18 @@ MODELS_REFERENCE_PATH = "dist/bundled/command-code-knowledge/reference/models.md
 CLI_BUNDLE_PATH = "dist/cli.mjs"
 
 TEXT_ONLY_MARKER = ',__name(isKnownTextOnlyModel,"isKnownTextOnlyModel")'
-VALID_EFFORTS = {"minimal", "low", "medium", "high", "xhigh", "max"}
+
+# Effort values seen in models.md so far. This is a *known* vocabulary, not a
+# gate: upstream adds levels over time (``off`` arrived with the DeepSeek V4
+# family), and a new well-formed level is drift — exit 1, draft PR — never "the
+# check could not run" (exit 2, red job). A value outside this set is carried
+# into the snapshot and called out in the report instead of failing the parse.
+KNOWN_EFFORTS = frozenset({"off", "minimal", "low", "medium", "high", "xhigh", "max"})
+
+# models.md spells every effort value as a bare lowercase token. This shape check
+# is the only hard gate, and it is what separates "upstream added a level" (data
+# drift) from "the table format changed under us" (cannot run).
+_EFFORT_TOKEN_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 # npm package spec accepted on the command line: letters, digits and the
 # characters npm allows in name/scope/tag/version. The spec arrives unquoted
@@ -72,12 +83,16 @@ class ModelMetadata:
         reasoning_efforts: dict[str, list[str]],
         max_output_tokens: dict[str, int],
         cli_version: str = "",
+        unrecognized_efforts: Optional[list[str]] = None,
     ):
         self.image_model_ids = image_model_ids
         self.reasoning_model_ids = reasoning_model_ids
         self.reasoning_efforts = reasoning_efforts
         self.max_output_tokens = max_output_tokens
         self.cli_version = cli_version
+        # Well-formed effort values this project has not seen before; they are
+        # kept, and the report flags them for review.
+        self.unrecognized_efforts = list(unrecognized_efforts or [])
 
 
 def _sorted(values) -> list[str]:
@@ -91,6 +106,7 @@ _MODELS_ROW_RE = re.compile(r"^\| `([^`]+)` \| [^|]* \| [^|]* \| ([^|]*) \|")
 def parse_models_reference(markdown: str):
     model_ids = set()
     reasoning_efforts: dict[str, list[str]] = {}
+    unrecognized_efforts: set[str] = set()
 
     for line in markdown.split("\n"):
         match = _MODELS_ROW_RE.match(line)
@@ -100,15 +116,32 @@ def parse_models_reference(markdown: str):
         efforts_column = match.group(2).strip()
         if not model_id or not efforts_column:
             raise ValueError(f"Could not parse model row: {line}")
-        if model_id in model_ids:
-            raise ValueError(f"Duplicate model id in reference: {model_id}")
-        model_ids.add(model_id)
 
         if efforts_column == "—":  # em-dash → no selectable efforts
+            efforts: Optional[list[str]] = None
+        else:
+            efforts = [e.strip() for e in efforts_column.split(",")]
+            if not efforts or any(not _EFFORT_TOKEN_RE.match(e) for e in efforts):
+                raise ValueError(
+                    f"Unexpected reasoning efforts for {model_id}: {efforts_column}"
+                )
+
+        if model_id in model_ids:
+            # The reference splits the catalog into one table per vendor, so a
+            # row can legitimately repeat. A repeat that agrees with itself is
+            # the same metadata twice; one that disagrees is ambiguous, so it
+            # still fails loudly rather than picking a winner.
+            if reasoning_efforts.get(model_id) != efforts:
+                raise ValueError(
+                    f"Conflicting reasoning efforts for {model_id}: "
+                    f"{reasoning_efforts.get(model_id) or '—'} vs {efforts_column}"
+                )
             continue
-        efforts = [e.strip() for e in efforts_column.split(",")]
-        if not efforts or any(e not in VALID_EFFORTS for e in efforts):
-            raise ValueError(f"Unexpected reasoning efforts for {model_id}: {efforts_column}")
+        model_ids.add(model_id)
+
+        if efforts is None:
+            continue
+        unrecognized_efforts.update(e for e in efforts if e not in KNOWN_EFFORTS)
         reasoning_efforts[model_id] = efforts
 
     if not model_ids:
@@ -117,6 +150,7 @@ def parse_models_reference(markdown: str):
     return {
         "model_ids": _sorted(model_ids),
         "reasoning_efforts": dict(sorted(reasoning_efforts.items())),
+        "unrecognized_efforts": sorted(unrecognized_efforts),
     }
 
 
@@ -209,6 +243,7 @@ def command_code_model_metadata_from_contents(
         reasoning_model_ids=capabilities["reasoning_model_ids"],
         reasoning_efforts=reference["reasoning_efforts"],
         max_output_tokens=capabilities["max_output_tokens"],
+        unrecognized_efforts=reference["unrecognized_efforts"],
     )
 
 
@@ -388,6 +423,13 @@ def metadata_report(package_version, current, upstream, diff: ModelMetadataDiff)
         f"- Reasoning models: {len(current.reasoning_model_ids)} repository / {len(upstream.reasoning_model_ids)} upstream",
         f"- Models with selectable efforts: {len(current.reasoning_efforts)} repository / {len(upstream.reasoning_efforts)} upstream",
         f"- Model-specific output limits: {len(current.max_output_tokens)} repository / {len(upstream.max_output_tokens)} upstream",
+    ]
+    if upstream.unrecognized_efforts:
+        lines.append(
+            f"- ⚠️ Effort values not seen before: {_format_list(upstream.unrecognized_efforts)} "
+            "— carried into the snapshot, but confirm the endpoint accepts them"
+        )
+    lines += [
         "",
         "| Change | Models |",
         "| --- | --- |",
@@ -479,6 +521,11 @@ def inspect_packed_package(package_spec: str):
 # 0 = metadata current, 1 = drift detected (report/PR path), 2 = the check could
 # not run at all (npm or parser failure). The workflow keys its PR steps on 1
 # and fails the job on 2, so an error can never be reported as drift.
+#
+# The split matters for *data* surprises too: an upstream table that parses fine
+# but carries values this project has not seen (a new reasoning-effort level) is
+# drift, so it lands in a reviewable PR. Only an unreadable table — no rows, a
+# duplicate id, a malformed row, a missing bundle marker — is exit 2.
 EXIT_OK = 0
 EXIT_DRIFT = 1
 EXIT_ERROR = 2
