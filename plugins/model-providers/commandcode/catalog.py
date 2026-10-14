@@ -1,13 +1,13 @@
 """Command Code model catalog snapshot.
 
-Generated from command-code@1.81.0 by `python sync_catalog.py --write`.
+Generated from command-code@1.82.1 by `python sync_catalog.py --write`.
 Do not edit manually.
 """
 
 from __future__ import annotations
 
 # The CLI version this snapshot was generated from. Bump on re-sync.
-COMMAND_CODE_CLI_VERSION = "1.81.0"
+COMMAND_CODE_CLI_VERSION = "1.82.1"
 
 MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "MiniMaxAI/MiniMax-M3": ("low", "medium", "high"),
@@ -38,6 +38,7 @@ MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "google/gemini-3.6-flash": ("low", "medium", "high"),
     "google/gemini-3.7-flash": ("low", "medium", "high"),
     "google/gemini-3.8-flash": ("low", "medium", "high"),
+    "google/gemini-4-argon": ("low", "medium", "high"),
     "gpt-5.3-codex": ("low", "medium", "high", "xhigh"),
     "gpt-5.4": ("low", "medium", "high", "xhigh"),
     "gpt-5.4-mini": ("low", "medium", "high"),
@@ -101,6 +102,7 @@ MODEL_INPUT_MODALITIES: dict[str, tuple[str, ...]] = {
     "google/gemini-3.6-flash": ("text", "image"),
     "google/gemini-3.7-flash": ("text", "image"),
     "google/gemini-3.8-flash": ("text", "image"),
+    "google/gemini-4-argon": ("text", "image"),
     "gpt-5.3-codex": ("text", "image"),
     "gpt-5.4": ("text", "image"),
     "gpt-5.4-mini": ("text", "image"),
@@ -175,6 +177,7 @@ MODEL_REASONING: frozenset[str] = frozenset(
     "google/gemini-3.6-flash": True,
     "google/gemini-3.7-flash": True,
     "google/gemini-3.8-flash": True,
+    "google/gemini-4-argon": True,
     "gpt-5.3-codex": True,
     "gpt-5.4": True,
     "gpt-5.4-mini": True,
