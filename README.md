@@ -184,7 +184,7 @@ python scripts/sync_catalog.py
 python scripts/sync_catalog.py --write
 
 # Pin a specific CLI version
-python scripts/sync_catalog.py command-code@1.81.0 --write
+python scripts/sync_catalog.py command-code@1.88.0 --write
 ```
 
 The GitHub Actions workflow runs the check daily; on drift (exit 1) it opens a
