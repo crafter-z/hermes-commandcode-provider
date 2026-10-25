@@ -43,8 +43,6 @@ README_PATH = REPO_ROOT / "README.md"
 MODELS_REFERENCE_PATH = "dist/bundled/command-code-knowledge/reference/models.md"
 CLI_BUNDLE_PATH = "dist/cli.mjs"
 
-TEXT_ONLY_MARKER = ',__name(isKnownTextOnlyModel,"isKnownTextOnlyModel")'
-
 # Effort values seen in models.md so far. This is a *known* vocabulary, not a
 # gate: upstream adds levels over time (``off`` arrived with the DeepSeek V4
 # family), and a new well-formed level is drift — exit 1, draft PR — never "the
@@ -155,76 +153,115 @@ def parse_models_reference(markdown: str):
 
 
 # ── Parser: cli.mjs ──────────────────────────────────────────────────────────
+#
+# Upstream ships the catalog as minified JS object literals inside dist/cli.mjs.
+# This parser used to key on exact source text, and two of those anchors died in
+# command-code@1.82.3 without changing anything semantically:
+#
+#   * a `new Set([...text-only ids...])` next to
+#     `__name(isKnownTextOnlyModel,"isKnownTextOnlyModel")` — deleted, so
+#     `rfind("new Set([")` landed on an unrelated `new Set(["anthropic",
+#     "openai"])` and `json.loads` failed with "Extra data: line 1 column 23",
+#   * `{id:"<id>",inputModalities:` as the object opener — invalidated the same
+#     release, when the objects were re-serialized as `display:{...},id:"<id>",
+#     inputModalities:...`.
+#
+# Both surfaced as exit 2 ("the check could not run"), i.e. a red scheduled job
+# that never opens the drift PR the pipeline exists for. The lesson is that
+# nothing here may depend on field order, on a neighbouring declaration, or on
+# brace matching — the bundle contains regex and template literals that defeat
+# naive scanners, and it is re-minified on every release.
+#
+# What upstream *does* keep stable is the shape of a catalog model object: it
+# carries its own `id:"..."` and an `inputModalities:[...]` array. So anchor on
+# the id, treat the text up to the next `id:"` as that model's own fields, and
+# read each field independently.
+
+_ID_ANCHOR_RE = re.compile(r'id:"')
+_INPUT_MODALITIES_RE = re.compile(r"inputModalities:\[([^\]]*)\]")
+_MAX_OUTPUT_RE = re.compile(r"maxOutputTokens:(null|[0-9][0-9.e+]*)")
+_REASONING_FLAG_RE = re.compile(r"reasoning:(!0|!1)")
+_REASONING_EFFORTS_RE = re.compile(r"reasoningEfforts:(null|\[)")
+
+# Guard for the final model in the bundle, which has no following `id:"` to
+# bound its fields. Every field this parser reads sits immediately after the id.
+_FIELD_WINDOW = 1200
 
 
-def parse_known_text_only_model_ids(bundle: str) -> list[str]:
-    marker_index = bundle.find(TEXT_ONLY_MARKER)
-    if marker_index < 0:
-        raise ValueError("Could not find Command Code's isKnownTextOnlyModel catalog")
+def _model_field_windows(bundle: str, model_id: str) -> list[str]:
+    """Return the field text of every object literal declaring *model_id*.
 
-    set_start = bundle.rfind("new Set([", 0, marker_index)
-    if set_start < 0:
-        raise ValueError("Could not find the text-only model set")
-
-    array_start = set_start + len("new Set(")
-    array_end = marker_index - 1
-    literal = bundle[array_start:array_end]
-    parsed = json.loads(literal)
-    if not isinstance(parsed, list) or not all(isinstance(x, str) for x in parsed):
-        raise ValueError("Expected the text-only model catalog to be strings")
-    return _sorted(parsed)
-
-
-def _model_object(bundle: str, model_id: str) -> str:
-    """Return the brace-delimited model object literal for *model_id*."""
-    anchor = f'{{id:"{model_id}",inputModalities:'
-    start = bundle.find(anchor)
-    if start < 0:
-        raise ValueError(f"Could not find model metadata for {model_id}")
-
-    depth = 0
-    quote = ""
-    escaped = False
-    end = start
-    while end < len(bundle):
-        char = bundle[end]
-        if quote:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = ""
-        else:
-            if char in ('"', "'", "`"):
-                quote = char
-            elif char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    return bundle[start : end + 1]
-        end += 1
-
-    raise ValueError(f"Unterminated model metadata for {model_id}")
+    A model's own fields are the text between its ``id:"..."`` and the next
+    ``id:"..."`` in the bundle. Upstream lists each model more than once (the
+    served catalog and the embedded catalog), so this returns one window per
+    listing; callers merge them.
+    """
+    needle = f'id:"{model_id}"'
+    windows = []
+    index = 0
+    while True:
+        start = bundle.find(needle, index)
+        if start < 0:
+            return windows
+        following = _ID_ANCHOR_RE.search(bundle, start + len(needle))
+        end = following.start() if following else start + _FIELD_WINDOW
+        windows.append(bundle[start:end])
+        index = start + len(needle)
 
 
 def parse_bundle_model_capabilities(bundle: str, model_ids: list[str]):
+    """Derive image support, reasoning support and output caps from the bundle."""
+    image_model_ids = []
     reasoning_model_ids = []
     max_output_tokens: dict[str, int] = {}
 
     for model_id in model_ids:
-        entry = _model_object(bundle, model_id)
-        if "reasoning:!0" in entry or "reasoningEfforts:[" in entry:
+        windows = _model_field_windows(bundle, model_id)
+        if not windows:
+            raise ValueError(
+                f"Could not find model metadata for {model_id} in the Command Code bundle "
+                "(the bundle format may have changed again)"
+            )
+
+        declared = set()
+        for window in windows:
+            modalities = _INPUT_MODALITIES_RE.search(window)
+            if modalities:
+                declared.add(tuple(re.findall(r'"([^"]*)"', modalities.group(1))))
+        if not declared:
+            raise ValueError(f"Could not find input modalities for {model_id}")
+        if len(declared) > 1:
+            raise ValueError(
+                f"Conflicting input modalities for {model_id}: {[list(d) for d in sorted(declared)]}"
+            )
+        if "image" in next(iter(declared)):
+            image_model_ids.append(model_id)
+
+        is_reasoning = False
+        for window in windows:
+            flag = _REASONING_FLAG_RE.search(window)
+            efforts = _REASONING_EFFORTS_RE.search(window)
+            if (flag and flag.group(1) == "!0") or (efforts and efforts.group(1) == "["):
+                is_reasoning = True
+
+            max_output = _MAX_OUTPUT_RE.search(window)
+            if max_output and max_output.group(1) != "null":
+                value = float(max_output.group(1))
+                if not (value > 0 and value == int(value)):
+                    raise ValueError(
+                        f"Unexpected max output tokens for {model_id}: {max_output.group(1)}"
+                    )
+                previous = max_output_tokens.get(model_id)
+                if previous is not None and previous != int(value):
+                    raise ValueError(
+                        f"Conflicting max output tokens for {model_id}: {previous} vs {int(value)}"
+                    )
+                max_output_tokens[model_id] = int(value)
+        if is_reasoning:
             reasoning_model_ids.append(model_id)
-        max_output = re.search(r"maxOutputTokens:([^,}]+)", entry)
-        if max_output:
-            value = float(max_output.group(1))
-            if not (value > 0 and value == int(value)):
-                raise ValueError(f"Unexpected max output tokens for {model_id}: {max_output.group(1)}")
-            max_output_tokens[model_id] = int(value)
 
     return {
+        "image_model_ids": _sorted(image_model_ids),
         "reasoning_model_ids": _sorted(reasoning_model_ids),
         "max_output_tokens": dict(sorted(max_output_tokens.items())),
     }
@@ -234,12 +271,10 @@ def command_code_model_metadata_from_contents(
     models_reference: str, cli_bundle: str
 ) -> ModelMetadata:
     reference = parse_models_reference(models_reference)
-    text_only_model_ids = set(parse_known_text_only_model_ids(cli_bundle))
     capabilities = parse_bundle_model_capabilities(cli_bundle, reference["model_ids"])
 
-    image_model_ids = [mid for mid in reference["model_ids"] if mid not in text_only_model_ids]
     return ModelMetadata(
-        image_model_ids=_sorted(image_model_ids),
+        image_model_ids=capabilities["image_model_ids"],
         reasoning_model_ids=capabilities["reasoning_model_ids"],
         reasoning_efforts=reference["reasoning_efforts"],
         max_output_tokens=capabilities["max_output_tokens"],

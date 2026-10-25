@@ -6,13 +6,20 @@ Guards the exit-code contract the workflow keys on:
 * 1 — drift → draft PR,
 * 2 — the check could not run → red job.
 
-The regression this suite exists for: ``models.md`` gained ``off`` as a
-selectable effort for the DeepSeek V4 family. The parser validated effort values
-against a frozen allowlist, so a legitimate upstream value became "the check
-could not run" and the daily job failed for eleven days running instead of
-opening a drift PR. The rules now are:
+Two regressions this suite exists for, both of which turned a routine upstream
+release into a red scheduled job that never opened the drift PR:
+
+1. ``models.md`` gained ``off`` as a selectable effort for the DeepSeek V4
+   family, and the parser validated effort values against a frozen allowlist.
+2. ``command-code@1.82.3`` re-serialized the catalog in ``dist/cli.mjs`` and
+   deleted the ``new Set([...text-only ids...])`` declaration. The parser keyed
+   on both, so it exited 2 with "Extra data: line 1 column 23" instead of
+   reporting drift.
+
+The rules now are:
 
 * a well-formed but previously unseen level is *data drift* (exit 1),
+* a re-serialized but still readable bundle is parsed, not failed,
 * only an unreadable table is "could not run" (exit 2).
 
 Run with ``python tests/test_sync_catalog_parser.py`` (no pytest required).
@@ -66,7 +73,7 @@ def models_md(*rows: str) -> str:
 
 # The exact row that broke the CI run: `off` first, then levels.
 ROW_OFF = "| `deepseek/deepseek-v4-pro` | DeepSeek | 1M | off, high, max |"
-ROW_LEVELS = "| `claude-sonnet-5` | Anthropic | 1M | low, medium, high, xhigh, max |"
+ROW_LEVELS = "| `acme/vision-1` | Acme | 1M | low, medium, high, xhigh, max |"
 ROW_NONE = "| `moonshotai/Kimi-K2.7-Code` | Moonshot | 256K | — |"
 
 # ── 1. `off` is a known, accepted value (the CI regression) ──────────────────
@@ -148,38 +155,61 @@ check(
     ),
 )
 
-# ── 4. the bundle parsers still find their markers ──────────────────────────
+# ── 4. the bundle parser survives upstream re-serialization ─────────────────
+#
+# This is the command-code@1.82.3 shape: `id:` is no longer the first field of
+# the object literal, and the `new Set([...text-only ids...])` declaration is
+# gone. The old parser keyed on both, grabbed the unrelated
+# `new Set(["anthropic","openai"])`, and died with a JSON error.
 
 BUNDLE = (
-    'const t=new Set(["moonshotai/Kimi-K2.7-Code"]),'
+    'const t=new Set(["anthropic","openai"]),'
     '__name(isKnownTextOnlyModel,"isKnownTextOnlyModel");'
-    'const M={A:{id:"deepseek/deepseek-v4-pro",inputModalities:["text"],reasoning:!0,'
-    'reasoningEfforts:["off","high","max"],maxOutputTokens:65536},'
-    'B:{id:"claude-sonnet-5",inputModalities:["text","image"],reasoning:!0,'
-    'reasoningEfforts:["low","medium","high","xhigh","max"]},'
-    'C:{id:"moonshotai/Kimi-K2.7-Code",inputModalities:["text"]}};'
+    'const M={A:{display:{label:"DeepSeek V4 Pro"},id:"deepseek/deepseek-v4-pro",'
+    'inputModalities:["text"],reasoning:!0,reasoningEfforts:["off","high","max"],'
+    'maxOutputTokens:65536},'
+    'B:{display:{label:"Acme Vision"},id:"acme/vision-1",inputModalities:["text","image"],'
+    'reasoning:!0,reasoningEfforts:["low","medium","high","xhigh","max"]},'
+    'C:{display:{label:"Kimi"},id:"moonshotai/Kimi-K2.7-Code",inputModalities:["text"]}};'
 )
-check(
-    "text-only ids come off the bundle marker",
-    sync.parse_known_text_only_model_ids(BUNDLE) == ["moonshotai/Kimi-K2.7-Code"],
-    sync.parse_known_text_only_model_ids(BUNDLE),
-)
-check(
-    "a missing text-only marker → error",
-    raises(sync.parse_known_text_only_model_ids, "const M={};"),
-)
+
 caps = sync.parse_bundle_model_capabilities(
-    BUNDLE, ["deepseek/deepseek-v4-pro", "moonshotai/Kimi-K2.7-Code", "claude-sonnet-5"]
+    BUNDLE, ["deepseek/deepseek-v4-pro", "acme/vision-1", "moonshotai/Kimi-K2.7-Code"]
 )
 check(
-    "capabilities come off the model objects",
-    caps["reasoning_model_ids"] == ["claude-sonnet-5", "deepseek/deepseek-v4-pro"]
+    "capabilities are read regardless of field order",
+    caps["reasoning_model_ids"] == ["acme/vision-1", "deepseek/deepseek-v4-pro"]
     and caps["max_output_tokens"] == {"deepseek/deepseek-v4-pro": 65536},
     caps,
 )
 check(
+    "image support comes from inputModalities, not a deleted id Set",
+    caps["image_model_ids"] == ["acme/vision-1"],
+    caps["image_model_ids"],
+)
+check(
     "a missing model object → error",
     raises(sync.parse_bundle_model_capabilities, BUNDLE, ["nope/nope"]),
+)
+check(
+    "conflicting duplicate listings → error",
+    raises(
+        sync.parse_bundle_model_capabilities,
+        'const M={A:{id:"acme/v1",inputModalities:["text"]},'
+        'B:{id:"acme/v1",inputModalities:["text","image"]}};',
+        ["acme/v1"],
+    ),
+)
+check(
+    "a bundle carrying no text-only Set still parses",
+    sync.parse_bundle_model_capabilities(
+        'const M={A:{id:"acme/v1",inputModalities:["text"]}};', ["acme/v1"]
+    )
+    == {"image_model_ids": [], "reasoning_model_ids": [], "max_output_tokens": {}},
+)
+check(
+    "a model with no inputModalities → error",
+    raises(sync.parse_bundle_model_capabilities, 'const M={A:{id:"acme/v1"}};', ["acme/v1"]),
 )
 
 # ── 5. derived metadata → renderable, importable catalog ────────────────────
@@ -193,9 +223,14 @@ check(
     derived.reasoning_efforts.get("deepseek/deepseek-v4-pro"),
 )
 check(
-    "image ids drop the text-only model",
-    derived.image_model_ids == ["claude-sonnet-5", "deepseek/deepseek-v4-pro"],
+    "image ids come from the bundle's inputModalities",
+    derived.image_model_ids == ["acme/vision-1"],
     derived.image_model_ids,
+)
+check(
+    "reasoning ids come from the bundle's model objects",
+    derived.reasoning_model_ids == ["acme/vision-1", "deepseek/deepseek-v4-pro"],
+    derived.reasoning_model_ids,
 )
 rendered = sync.render_catalog("1.2.3", derived)
 namespace: dict = {}
