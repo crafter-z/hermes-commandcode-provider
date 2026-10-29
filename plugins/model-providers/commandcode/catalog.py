@@ -1,13 +1,13 @@
 """Command Code model catalog snapshot.
 
-Generated from command-code@1.88.0 by `python sync_catalog.py --write`.
+Generated from command-code@1.88.2 by `python sync_catalog.py --write`.
 Do not edit manually.
 """
 
 from __future__ import annotations
 
 # The CLI version this snapshot was generated from. Bump on re-sync.
-COMMAND_CODE_CLI_VERSION = "1.88.0"
+COMMAND_CODE_CLI_VERSION = "1.88.2"
 
 MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "MiniMaxAI/MiniMax-M3": ("low", "medium", "high"),
@@ -51,6 +51,7 @@ MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "gpt-6-luna": ("low", "medium", "high", "xhigh", "max"),
     "gpt-6-sol": ("low", "medium", "high", "xhigh", "max"),
     "gpt-6.1-sol": ("low", "medium", "high", "xhigh", "max"),
+    "gpt-6.1-terra": ("low", "medium", "high", "xhigh", "max"),
     "inclusionai/ling-3.1-flash": ("low", "medium", "high"),
     "meta/muse-spark-1.1": ("low", "medium", "high", "xhigh"),
     "meta/muse-spark-1.2": ("low", "medium", "high", "xhigh"),
@@ -62,6 +63,7 @@ MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "minimax/minimax-m3.1-flash": ("low", "medium", "high", "xhigh", "max"),
     "mistral/mistral-large-4": ("low", "medium", "high"),
     "moonshotai/Kimi-K3": ("low", "high", "max"),
+    "moonshotai/Kimi-K3.1-Pro": ("low", "high", "max"),
     "nvidia/nemotron-3.5-super-vl": ("low", "medium", "high"),
     "reflection/beam:free": ("low", "medium", "high", "xhigh", "max"),
     "sakana/fugu-ultra": ("high", "xhigh"),
@@ -120,6 +122,7 @@ MODEL_INPUT_MODALITIES: dict[str, tuple[str, ...]] = {
     "gpt-6-luna": ("text", "image"),
     "gpt-6-sol": ("text", "image"),
     "gpt-6.1-sol": ("text", "image"),
+    "gpt-6.1-terra": ("text", "image"),
     "meta/muse-spark-1.1": ("text", "image"),
     "meta/muse-spark-1.2": ("text", "image"),
     "meta/muse-spark-1.2-contributor": ("text", "image"),
@@ -134,6 +137,7 @@ MODEL_INPUT_MODALITIES: dict[str, tuple[str, ...]] = {
     "moonshotai/Kimi-K2.7-Code": ("text", "image"),
     "moonshotai/Kimi-K2.7-Code-Highspeed": ("text", "image"),
     "moonshotai/Kimi-K3": ("text", "image"),
+    "moonshotai/Kimi-K3.1-Pro": ("text", "image"),
     "nvidia/nemotron-3.5-super-vl": ("text", "image"),
     "ornith/ornith-1.5-122b": ("text", "image"),
     "sakana/fugu-ultra": ("text", "image"),
@@ -199,6 +203,7 @@ MODEL_REASONING: frozenset[str] = frozenset(
     "gpt-6-luna": True,
     "gpt-6-sol": True,
     "gpt-6.1-sol": True,
+    "gpt-6.1-terra": True,
     "inclusionai/ling-3.1-flash": True,
     "meituan/LongCat-2.0": True,
     "meta/muse-spark-1.1": True,
@@ -213,6 +218,7 @@ MODEL_REASONING: frozenset[str] = frozenset(
     "moonshotai/Kimi-K2.7-Code": True,
     "moonshotai/Kimi-K2.7-Code-Highspeed": True,
     "moonshotai/Kimi-K3": True,
+    "moonshotai/Kimi-K3.1-Pro": True,
     "nvidia/nemotron-3-ultra-550b-a55b": True,
     "nvidia/nemotron-3.5-super-vl": True,
     "ornith/ornith-1.5-122b": True,
