@@ -1,13 +1,13 @@
 """Command Code model catalog snapshot.
 
-Generated from command-code@1.88.0 by `python sync_catalog.py --write`.
+Generated from command-code@1.88.5 by `python sync_catalog.py --write`.
 Do not edit manually.
 """
 
 from __future__ import annotations
 
 # The CLI version this snapshot was generated from. Bump on re-sync.
-COMMAND_CODE_CLI_VERSION = "1.88.0"
+COMMAND_CODE_CLI_VERSION = "1.88.5"
 
 MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "MiniMaxAI/MiniMax-M3": ("low", "medium", "high"),
@@ -33,6 +33,7 @@ MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "deepseek/deepseek-v4-pro": ("off", "high", "max"),
     "deepseek/deepseek-v4.1-flash": ("off", "low", "high", "max"),
     "deepseek/deepseek-v4.1-flash-fast": ("off", "low", "high", "max"),
+    "deepseek/deepseek-v4.1-flash-ultrafast": ("off", "low", "high", "max"),
     "google/gemini-3.1-flash-lite": ("low", "medium", "high"),
     "google/gemini-3.5-flash": ("low", "medium", "high"),
     "google/gemini-3.5-flash-lite": ("low", "medium", "high"),
@@ -51,7 +52,9 @@ MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "gpt-6-luna": ("low", "medium", "high", "xhigh", "max"),
     "gpt-6-sol": ("low", "medium", "high", "xhigh", "max"),
     "gpt-6.1-sol": ("low", "medium", "high", "xhigh", "max"),
+    "gpt-6.1-terra": ("low", "medium", "high", "xhigh", "max"),
     "inclusionai/ling-3.1-flash": ("low", "medium", "high"),
+    "inclusionai/ling-3.1-flash-1019": ("low", "medium", "high"),
     "meta/muse-spark-1.1": ("low", "medium", "high", "xhigh"),
     "meta/muse-spark-1.2": ("low", "medium", "high", "xhigh"),
     "meta/muse-spark-1.2-contributor": ("low", "medium", "high", "xhigh"),
@@ -62,9 +65,11 @@ MODEL_EFFORTS: dict[str, tuple[str, ...]] = {
     "minimax/minimax-m3.1-flash": ("low", "medium", "high", "xhigh", "max"),
     "mistral/mistral-large-4": ("low", "medium", "high"),
     "moonshotai/Kimi-K3": ("low", "high", "max"),
+    "moonshotai/Kimi-K3.1-Pro": ("low", "high", "max"),
     "nvidia/nemotron-3.5-super-vl": ("low", "medium", "high"),
     "reflection/beam:free": ("low", "medium", "high", "xhigh", "max"),
     "sakana/fugu-ultra": ("high", "xhigh"),
+    "stealth/crouton-alpha": ("low", "medium", "high", "xhigh", "max"),
     "stealth/glyph-cluster:free": ("low", "medium", "high", "xhigh"),
     "stepfun/Step-5-Preview": ("low", "medium", "high"),
     "tencent/hy4-preview": ("low", "medium", "high"),
@@ -102,6 +107,7 @@ MODEL_INPUT_MODALITIES: dict[str, tuple[str, ...]] = {
     "deepseek/deepseek-v4-flash-vision-exp": ("text", "image"),
     "deepseek/deepseek-v4.1-flash": ("text", "image"),
     "deepseek/deepseek-v4.1-flash-fast": ("text", "image"),
+    "deepseek/deepseek-v4.1-flash-ultrafast": ("text", "image"),
     "google/gemini-3.1-flash-lite": ("text", "image"),
     "google/gemini-3.5-flash": ("text", "image"),
     "google/gemini-3.5-flash-lite": ("text", "image"),
@@ -120,6 +126,7 @@ MODEL_INPUT_MODALITIES: dict[str, tuple[str, ...]] = {
     "gpt-6-luna": ("text", "image"),
     "gpt-6-sol": ("text", "image"),
     "gpt-6.1-sol": ("text", "image"),
+    "gpt-6.1-terra": ("text", "image"),
     "meta/muse-spark-1.1": ("text", "image"),
     "meta/muse-spark-1.2": ("text", "image"),
     "meta/muse-spark-1.2-contributor": ("text", "image"),
@@ -134,9 +141,11 @@ MODEL_INPUT_MODALITIES: dict[str, tuple[str, ...]] = {
     "moonshotai/Kimi-K2.7-Code": ("text", "image"),
     "moonshotai/Kimi-K2.7-Code-Highspeed": ("text", "image"),
     "moonshotai/Kimi-K3": ("text", "image"),
+    "moonshotai/Kimi-K3.1-Pro": ("text", "image"),
     "nvidia/nemotron-3.5-super-vl": ("text", "image"),
     "ornith/ornith-1.5-122b": ("text", "image"),
     "sakana/fugu-ultra": ("text", "image"),
+    "stealth/crouton-alpha": ("text", "image"),
     "stepfun/Step-3.7-Flash": ("text", "image"),
     "stepfun/Step-5-Preview": ("text", "image"),
     "thinkingmachines/inkling": ("text", "image"),
@@ -181,6 +190,7 @@ MODEL_REASONING: frozenset[str] = frozenset(
     "deepseek/deepseek-v4-pro": True,
     "deepseek/deepseek-v4.1-flash": True,
     "deepseek/deepseek-v4.1-flash-fast": True,
+    "deepseek/deepseek-v4.1-flash-ultrafast": True,
     "google/gemini-3.1-flash-lite": True,
     "google/gemini-3.5-flash": True,
     "google/gemini-3.5-flash-lite": True,
@@ -199,7 +209,9 @@ MODEL_REASONING: frozenset[str] = frozenset(
     "gpt-6-luna": True,
     "gpt-6-sol": True,
     "gpt-6.1-sol": True,
+    "gpt-6.1-terra": True,
     "inclusionai/ling-3.1-flash": True,
+    "inclusionai/ling-3.1-flash-1019": True,
     "meituan/LongCat-2.0": True,
     "meta/muse-spark-1.1": True,
     "meta/muse-spark-1.2": True,
@@ -213,12 +225,13 @@ MODEL_REASONING: frozenset[str] = frozenset(
     "moonshotai/Kimi-K2.7-Code": True,
     "moonshotai/Kimi-K2.7-Code-Highspeed": True,
     "moonshotai/Kimi-K3": True,
+    "moonshotai/Kimi-K3.1-Pro": True,
     "nvidia/nemotron-3-ultra-550b-a55b": True,
     "nvidia/nemotron-3.5-super-vl": True,
     "ornith/ornith-1.5-122b": True,
-    "poolside/laguna-s-2.1-free": True,
     "reflection/beam:free": True,
     "sakana/fugu-ultra": True,
+    "stealth/crouton-alpha": True,
     "stealth/glyph-cluster:free": True,
     "stepfun/Step-3.5-Flash": True,
     "stepfun/Step-3.7-Flash": True,
@@ -242,9 +255,10 @@ MODEL_MAX_OUTPUT_TOKENS: dict[str, int] = {
     "Qwen/Qwen3.8-Max-Prime": 131_072,
     "Qwen/Qwen3.8-Omni-Flash": 131_072,
     "inclusionai/ling-3.1-flash": 32_768,
+    "inclusionai/ling-3.1-flash-1019": 262_144,
     "mistral/mistral-large-4": 262_144,
-    "poolside/laguna-s-2.1-free": 32_768,
     "reflection/beam:free": 131_072,
+    "stealth/crouton-alpha": 943_718,
     "stealth/glyph-cluster:free": 256_000,
     "z-ai/glm-5.3-flash": 131_072,
     "z-ai/glm-5.3-flashx": 131_072,
